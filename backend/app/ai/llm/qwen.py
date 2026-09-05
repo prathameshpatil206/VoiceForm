@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 import httpx
@@ -15,18 +16,20 @@ class Qwen3LLMProvider(LLMProvider):
     """
     Qwen3 LLM provider for reasoning, semantic entity recognition,
     and structured form action extraction.
-    Interacts with local Ollama service (or OpenAI-compatible endpoint) using strict JSON format.
+    Supports high-speed cloud LLMs (Groq) and optimized local Ollama.
     """
 
     def __init__(
         self,
         base_url: str = config.OLLAMA_BASE_URL,
         model_name: str = config.LLM_MODEL,
-        timeout_seconds: float = config.LLM_TIMEOUT
+        timeout_seconds: float = config.LLM_TIMEOUT,
+        groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model_name = model_name
         self.timeout_seconds = timeout_seconds
+        self.groq_api_key = groq_api_key if groq_api_key and groq_api_key != "your_groq_api_key_here" else None
 
     async def extract_actions(
         self,
@@ -36,6 +39,17 @@ class Qwen3LLMProvider(LLMProvider):
         conversation_history: List[Dict[str, Any]],
         profile_context: Optional[Dict[str, Any]] = None
     ) -> LLMActionResult:
+        # 1. High-speed cloud LLM (Groq) if configured (sub-250ms latency)
+        groq_key = self.groq_api_key or os.getenv("GROQ_API_KEY")
+        if groq_key and groq_key != "your_groq_api_key_here":
+            try:
+                return await self._extract_via_groq(
+                    transcript, schema, current_values, conversation_history, profile_context, groq_key
+                )
+            except Exception as e_groq:
+                logger.warning(f"Groq LLM extraction failed; falling back to local Ollama: {e_groq}")
+
+        # 2. Local Ollama with speed optimization parameters
         user_prompt = build_user_prompt(
             transcript=transcript,
             schema=schema,
@@ -56,23 +70,23 @@ class Qwen3LLMProvider(LLMProvider):
             "format": "json",
             "options": {
                 "temperature": 0.0,
-                "top_p": 0.9
+                "top_p": 0.9,
+                "num_predict": 180,   # Prevent runaway token generation
+                "num_ctx": 1024,      # Compact context window for speed
+                "num_thread": 8       # Utilize multi-core CPU threads
             }
         }
 
-        # Try Ollama native endpoint /api/chat first
         endpoint = f"{self.base_url}/api/chat"
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             try:
                 resp = await client.post(endpoint, json=payload)
                 if resp.status_code == 404:
-                    # Check available models in Ollama and pick the best available one
                     try:
                         tags_resp = await client.get(f"{self.base_url}/api/tags")
                         if tags_resp.status_code == 200:
                             models_data = tags_resp.json().get("models", [])
                             model_names = [m.get("name", "") for m in models_data]
-                            # Find best matching model: qwen* or first available
                             chosen = next((m for m in model_names if "qwen" in m.lower()), None)
                             if not chosen and model_names:
                                 chosen = model_names[0]
@@ -85,7 +99,6 @@ class Qwen3LLMProvider(LLMProvider):
                         logger.debug(f"Could not auto-discover Ollama tags: {tag_err}")
 
                 if resp.status_code == 404:
-                    # Try OpenAI-compatible endpoint
                     endpoint = f"{self.base_url}/v1/chat/completions"
                     payload["response_format"] = {"type": "json_object"}
                     resp = await client.post(endpoint, json=payload)
@@ -96,7 +109,6 @@ class Qwen3LLMProvider(LLMProvider):
                 logger.error(f"Error calling LLM provider at {endpoint}: {e}")
                 raise
 
-        # Extract raw text output
         raw_content = ""
         if "message" in data and "content" in data["message"]:
             raw_content = data["message"]["content"]
@@ -107,10 +119,57 @@ class Qwen3LLMProvider(LLMProvider):
 
         return self._parse_llm_output(raw_content)
 
+    async def _extract_via_groq(
+        self,
+        transcript: str,
+        schema: PageScanResult,
+        current_values: Dict[str, Any],
+        conversation_history: List[Dict[str, Any]],
+        profile_context: Optional[Dict[str, Any]],
+        api_key: str
+    ) -> LLMActionResult:
+        """Sub-250ms ultra-fast Groq LLM inference."""
+        user_prompt = build_user_prompt(
+            transcript=transcript,
+            schema=schema,
+            current_values=current_values,
+            conversation_history=conversation_history,
+            profile_context=profile_context
+        )
+
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": messages,
+            "temperature": 0.0,
+            "max_tokens": 250,
+            "response_format": {"type": "json_object"}
+        }
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
+            if resp.status_code != 200:
+                # Try fallback fast model on Groq
+                payload["model"] = "llama-3.1-8b-instant"
+                resp = await client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
+
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            return self._parse_llm_output(content)
+
     def _parse_llm_output(self, raw_text: str) -> LLMActionResult:
         """Parse strict JSON output from LLM, handling markdown code fences if present."""
         cleaned = raw_text.strip()
-        # Strip markdown ```json ... ``` code blocks if model included them
         if cleaned.startswith("```"):
             cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
             cleaned = re.sub(r"\n?```$", "", cleaned).strip()
@@ -119,21 +178,14 @@ class Qwen3LLMProvider(LLMProvider):
             parsed = json.loads(cleaned)
         except Exception as e:
             logger.warning(f"Failed to parse LLM JSON: {e}. Raw content was: {raw_text[:200]}")
-            # Try regex to locate first { ... }
             match = re.search(r"\{.*\}", cleaned, re.DOTALL)
             if match:
                 try:
                     parsed = json.loads(match.group(0))
                 except Exception:
-                    return LLMActionResult(
-                        actions=[],
-                        reasoning=f"Malformed JSON: {e}"
-                    )
+                    return LLMActionResult(actions=[], reasoning=f"Malformed JSON: {e}")
             else:
-                return LLMActionResult(
-                    actions=[],
-                    reasoning=f"Malformed JSON: {e}"
-                )
+                return LLMActionResult(actions=[], reasoning=f"Malformed JSON: {e}")
 
         actions = parsed.get("actions", [])
         response_text = parsed.get("response")

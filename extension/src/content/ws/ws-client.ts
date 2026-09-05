@@ -36,6 +36,7 @@ export interface WSClientOptions {
 
 export class VoiceFormWebSocketClient {
   private socket: WebSocket | null = null;
+  private port: chrome.runtime.Port | null = null;
   private url: string;
   private sessionId: string;
   private activeGenerationId = 0;
@@ -125,7 +126,7 @@ export class VoiceFormWebSocketClient {
       this.sessionId = customSessionId;
     }
 
-    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+    if (this.status === 'CONNECTED' || this.status === 'CONNECTING') {
       return;
     }
 
@@ -133,7 +134,17 @@ export class VoiceFormWebSocketClient {
     this.setStatus('CONNECTING');
 
     const fullUrl = `${this.url}/${this.sessionId}`;
+    const isHttps = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+    const hasChromeRuntime = typeof chrome !== 'undefined' && typeof chrome.runtime?.connect === 'function';
 
+    // On HTTPS pages, direct ws:// is blocked by browser mixed content policy.
+    // Use background service worker proxy port.
+    if (hasChromeRuntime && isHttps) {
+      this.connectViaBackgroundBridge(fullUrl);
+      return;
+    }
+
+    // Direct WebSocket connection
     try {
       this.socket = new WebSocket(fullUrl);
 
@@ -150,6 +161,7 @@ export class VoiceFormWebSocketClient {
 
       this.socket.onclose = (_event) => {
         this.stopHeartbeat();
+        this.socket = null;
         if (!this.intentionallyClosed) {
           this.setStatus('RECONNECTING');
           this.scheduleReconnect();
@@ -159,10 +171,67 @@ export class VoiceFormWebSocketClient {
       };
 
       this.socket.onerror = (err) => {
-        console.warn('[VoiceForm WS] Socket error:', err);
+        console.warn('[VoiceForm WS] Socket direct connect error, attempting background bridge if available:', err);
+        if (hasChromeRuntime && !this.port) {
+          if (this.socket) {
+            try { this.socket.close(); } catch {}
+            this.socket = null;
+          }
+          this.connectViaBackgroundBridge(fullUrl);
+        }
       };
     } catch (e) {
-      console.error('[VoiceForm WS] Failed to create socket:', e);
+      console.warn('[VoiceForm WS] Direct WebSocket creation failed:', e);
+      if (hasChromeRuntime) {
+        this.connectViaBackgroundBridge(fullUrl);
+      } else {
+        this.scheduleReconnect();
+      }
+    }
+  }
+
+  private connectViaBackgroundBridge(fullUrl: string): void {
+    try {
+      this.port = chrome.runtime.connect({ name: 'voiceform-ws' });
+
+      this.port.onMessage.addListener((msg: any) => {
+        if (msg.type === '__WS_EVENT__') {
+          if (msg.event === 'open') {
+            this.reconnectDelayMs = 1000;
+            this.setStatus('CONNECTED');
+            this.startHeartbeat();
+            this.sendHello();
+          } else if (msg.event === 'message') {
+            this.handleMessage(msg.data);
+          } else if (msg.event === 'close') {
+            this.stopHeartbeat();
+            this.port = null;
+            if (!this.intentionallyClosed) {
+              this.setStatus('RECONNECTING');
+              this.scheduleReconnect();
+            } else {
+              this.setStatus('DISCONNECTED');
+            }
+          } else if (msg.event === 'error') {
+            console.warn('[VoiceForm WS Bridge] Bridge error:', msg.error);
+          }
+        }
+      });
+
+      this.port.onDisconnect.addListener(() => {
+        this.port = null;
+        this.stopHeartbeat();
+        if (!this.intentionallyClosed) {
+          this.setStatus('RECONNECTING');
+          this.scheduleReconnect();
+        } else {
+          this.setStatus('DISCONNECTED');
+        }
+      });
+
+      this.port.postMessage({ type: 'CONNECT', url: fullUrl });
+    } catch (err) {
+      console.error('[VoiceForm WS Bridge] Failed to connect port:', err);
       this.scheduleReconnect();
     }
   }
@@ -174,15 +243,27 @@ export class VoiceFormWebSocketClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    if (this.port) {
+      try {
+        this.port.postMessage({ type: 'DISCONNECT' });
+        this.port.disconnect();
+      } catch {}
+      this.port = null;
+    }
     if (this.socket) {
-      this.socket.close();
+      try {
+        this.socket.close();
+      } catch {}
       this.socket = null;
     }
     this.setStatus('DISCONNECTED');
   }
 
   public send<T = any>(type: string, payload: T, generationId?: number): boolean {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+    const isSocketOpen = this.socket && this.socket.readyState === WebSocket.OPEN;
+    const isPortOpen = !!this.port;
+
+    if (!isSocketOpen && !isPortOpen) {
       return false;
     }
 
@@ -196,8 +277,19 @@ export class VoiceFormWebSocketClient {
       payload
     };
 
-    this.socket.send(JSON.stringify(envelope));
-    return true;
+    const jsonStr = JSON.stringify(envelope);
+
+    if (isPortOpen && this.port) {
+      this.port.postMessage({ type: 'SEND', data: jsonStr });
+      return true;
+    }
+
+    if (isSocketOpen && this.socket) {
+      this.socket.send(jsonStr);
+      return true;
+    }
+
+    return false;
   }
 
   public sendSchema(schema: PageScanResult): boolean {

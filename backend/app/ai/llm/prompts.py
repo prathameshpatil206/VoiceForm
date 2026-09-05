@@ -2,30 +2,28 @@ import json
 from typing import Any, Dict, List, Optional
 from app.schemas.form import PageScanResult
 
-SYSTEM_PROMPT = """You are VoiceForm AI, an intelligent agent that parses user voice transcripts to fill web forms accurately.
+SYSTEM_PROMPT = """You are VoiceForm AI, an intelligent agent that parses user voice transcripts to fill web forms accurately and with blazing speed.
 
-Your task is to analyze the user's transcript, map the stated information to the input fields present in the active web form, and generate an appropriate short spoken conversational response.
+Your task is to analyze the user's spoken transcript, map the stated information to the input fields present in the active web form, and generate an appropriate short spoken conversational response.
 
 ### STRICT RULES:
 1. ONLY fill fields that exist in the provided Form Schema.
-2. NEVER invent or hallucinate user information.
-3. NEVER guess sensitive information (passwords, payment, SSN).
-4. Use the EXACT `field_id` from the schema to map values.
-5. Extract multiple field values from a single utterance whenever the user provides multiple pieces of information.
-6. If the user's utterance is ambiguous or refers to multiple possible fields, set `ask_user` with a polite clarifying question instead of guessing.
-7. For dropdowns (`select`) and radio buttons (`radio`), use action `select_option` (or `fill_field`) with `field_id` matching the field's `field_id`, and `value` matching one of the available option values or labels.
-8. Never modify fields that the user did not provide information for.
-9. NEVER produce CSS selectors, DOM queries, or JavaScript code in actions or response. Only output structured action objects.
-10. Remembered User Profile Context (`user_profile_context`):
-    - Profile information represents previously remembered user details (e.g. name, email, phone).
-    - If the user explicitly asks to "fill with my details", "use my profile", or when relevant, you may use these candidate values.
-    - NEVER overwrite a field that already has a non-empty `current_value` unless the user explicitly requested replacing it.
+2. The user's CURRENT spoken transcript ALWAYS takes 100% absolute precedence.
+   - If the user states a name (e.g., "My name is Sai Siddu" or "Alex"), ALWAYS fill the exact stated value ("Sai Siddu"), NEVER an old or profile name.
+   - ONLY use candidate values from `user_profile_context` if the user explicitly asks (e.g., "use my profile", "fill my saved info", "use my details") or asks to autofill without giving a value.
+3. NEVER invent, hallucinate, or assume user information.
+4. NEVER guess sensitive information (passwords, payment details, CVV).
+5. Use the EXACT `field_id` from the schema to map values.
+6. Extract multiple field values from a single utterance whenever the user provides multiple pieces of information (e.g. "My name is Prathamesh, email is p@test.com, phone 555-1234").
+7. If the user's utterance is ambiguous or refers to multiple possible fields, set `ask_user` with a polite clarifying question instead of guessing.
+8. For dropdowns (`select`) and radio buttons (`radio`), use action `select_option` (or `fill_field`) with `field_id` matching the field's `field_id`, and `value` matching one of the available option values or labels.
+9. Never modify fields that the user did not provide information for.
+10. NEVER produce CSS selectors, DOM queries, or JavaScript code in actions or response.
 11. Conversational Spoken Response (`response`):
-    - Provide a short, friendly conversational response to be spoken aloud to the user via Text-to-Speech.
+    - Provide a concise, friendly conversational response to be spoken aloud to the user via Text-to-Speech.
     - Acknowledge what was filled (e.g. "Got it. I've filled in your name and email.").
     - If there are remaining empty required fields on the form, naturally ask for the next one (e.g. "What's your college or university?").
     - If clarification is needed, align `response` with `ask_user`.
-    - NEVER include HTML, selectors, code, or internal tokens in `response`.
 12. Supported actions:
     - `fill_field`: {"action": "fill_field", "field_id": "<id>", "value": "<value>"}
     - `clear_field`: {"action": "clear_field", "field_id": "<id>"}
@@ -51,21 +49,19 @@ The JSON must adhere to this exact structure:
 If available_fields contains:
 - {"field_id": "user-name", "label": "Full Name", "type": "text"}
 - {"field_id": "user-degree", "label": "Degree Program", "type": "select", "options": [{"value": "btech", "label": "B.Tech Computer Science"}]}
-- {"field_id": "vf-rg-mode", "label": "Study Mode", "type": "radio", "radio_options": [{"value": "fulltime", "label": "Full Time"}]}
 
 And User Transcript is:
-"My name is Ada Lovelace, my degree program is B.Tech Computer Science and study mode is fulltime."
+"My name is Sai Siddu and my degree program is B.Tech Computer Science."
 
 The JSON response MUST be:
 {
   "actions": [
-    {"action": "fill_field", "field_id": "user-name", "value": "Ada Lovelace"},
-    {"action": "select_option", "field_id": "user-degree", "value": "btech"},
-    {"action": "select_option", "field_id": "vf-rg-mode", "value": "fulltime"}
+    {"action": "fill_field", "field_id": "user-name", "value": "Sai Siddu"},
+    {"action": "select_option", "field_id": "user-degree", "value": "btech"}
   ],
-  "response": "Got it. I've filled in your name as Ada Lovelace, selected B.Tech Computer Science, and set study mode to full time.",
+  "response": "Got it. I've filled in your name as Sai Siddu and selected B.Tech Computer Science.",
   "ask_user": null,
-  "reasoning": "Extracted full name, selected degree option btech, and selected study mode fulltime."
+  "reasoning": "Extracted full name as Sai Siddu and selected degree option btech."
 }
 """
 
@@ -76,52 +72,67 @@ def build_user_prompt(
     conversation_history: List[Dict[str, Any]],
     profile_context: Optional[Dict[str, Any]] = None
 ) -> str:
-    # Summarize form fields in clean, readable context
+    # Summarize form fields in clean, compact context
     all_fields = []
     for form in schema.forms:
         for f in form.fields:
-            all_fields.append({
+            item: Dict[str, Any] = {
                 "field_id": f.id,
                 "label": f.label,
-                "type": f.type,
-                "name": f.name,
-                "required": f.validation.required,
-                "options": [{"value": o.value, "label": o.label} for o in (f.options or [])] if f.type == "select" else None,
-                "radio_options": [{"value": r.value, "label": r.label} for r in (f.radioOptions or [])] if f.type == "radio" else None,
-                "current_value": current_values.get(f.id, f.currentValue),
-                "disabled": f.disabled,
-                "read_only": f.readOnly
-            })
+                "type": f.type
+            }
+            if f.name:
+                item["name"] = f.name
+            if f.validation.required:
+                item["required"] = True
+            if f.type == "select" and f.options:
+                item["options"] = [{"value": o.value, "label": o.label} for o in f.options]
+            if f.type == "radio" and f.radioOptions:
+                item["radio_options"] = [{"value": r.value, "label": r.label} for r in f.radioOptions]
+            curr = current_values.get(f.id, f.currentValue)
+            if curr:
+                item["current_value"] = curr
+            if f.disabled:
+                item["disabled"] = True
+            all_fields.append(item)
 
     for f in schema.orphanFields:
-        all_fields.append({
+        item = {
             "field_id": f.id,
             "label": f.label,
-            "type": f.type,
-            "name": f.name,
-            "required": f.validation.required,
-            "options": [{"value": o.value, "label": o.label} for o in (f.options or [])] if f.type == "select" else None,
-            "radio_options": [{"value": r.value, "label": r.label} for r in (f.radioOptions or [])] if f.type == "radio" else None,
-            "current_value": current_values.get(f.id, f.currentValue),
-            "disabled": f.disabled,
-            "read_only": f.readOnly
-        })
+            "type": f.type
+        }
+        if f.name:
+            item["name"] = f.name
+        if f.validation.required:
+            item["required"] = True
+        if f.type == "select" and f.options:
+            item["options"] = [{"value": o.value, "label": o.label} for o in f.options]
+        if f.type == "radio" and f.radioOptions:
+            item["radio_options"] = [{"value": r.value, "label": r.label} for r in f.radioOptions]
+        curr = current_values.get(f.id, f.currentValue)
+        if curr:
+            item["current_value"] = curr
+        if f.disabled:
+            item["disabled"] = True
+        all_fields.append(item)
 
     prompt_data: Dict[str, Any] = {
-        "page_url": schema.url,
-        "page_title": schema.title,
+        "page_title": schema.title or "Web Form",
         "available_fields": all_fields,
-        "recent_conversation": conversation_history[-3:] if conversation_history else [],
         "user_transcript": transcript
     }
+
+    if conversation_history:
+        prompt_data["recent_conversation"] = conversation_history[-2:]
 
     if profile_context:
         prompt_data["user_profile_context"] = profile_context
 
     return (
-        f"Analyze the following user speech transcript and form schema, then produce the JSON actions to fill the form:\n\n"
-        f"{json.dumps(prompt_data, indent=2)}\n\n"
-        f"Return ONLY valid JSON matching the specified schema."
+        f"Analyze user speech transcript and form fields, then produce JSON actions:\n\n"
+        f"{json.dumps(prompt_data, separators=(',', ':'))}\n\n"
+        f"Return ONLY valid JSON."
     )
 
 

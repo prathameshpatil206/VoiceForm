@@ -14,6 +14,20 @@ import {
  * with zero hardcoded form dependencies and strict safety constraints.
  */
 
+function triggerFieldPulse(element: HTMLElement): void {
+  try {
+    if (typeof element.animate === 'function') {
+      element.animate([
+        { boxShadow: '0 0 0 0 rgba(56, 189, 248, 0.7)', borderColor: '#38bdf8' },
+        { boxShadow: '0 0 0 10px rgba(56, 189, 248, 0)', borderColor: '#38bdf8' }
+      ], {
+        duration: 700,
+        easing: 'cubic-bezier(0.16, 1, 0.3, 1)'
+      });
+    }
+  } catch {}
+}
+
 export function executeFillAction(
   action: FormAction,
   schema?: PageScanResult
@@ -89,6 +103,7 @@ export function executeFillAction(
       };
     }
 
+    triggerFieldPulse(checkbox);
     return {
       success: true,
       field_id: fieldId,
@@ -114,6 +129,7 @@ export function executeFillAction(
       };
     }
 
+    triggerFieldPulse(select);
     return {
       success: true,
       field_id: fieldId,
@@ -138,6 +154,7 @@ export function executeFillAction(
       };
     }
 
+    triggerFieldPulse(radio);
     return {
       success: true,
       field_id: fieldId,
@@ -168,6 +185,7 @@ export function executeFillAction(
       };
     }
 
+    triggerFieldPulse(input);
     return {
       success: true,
       field_id: fieldId,
