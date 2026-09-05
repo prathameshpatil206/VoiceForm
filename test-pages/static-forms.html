@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M1 Testbed - Static Forms</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f8fafc;
+      color: #1e293b;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 20px 100px;
+      line-height: 1.5;
+    }
+    h1 { margin-bottom: 8px; color: #0f172a; }
+    p.sub { color: #64748b; margin-top: 0; margin-bottom: 30px; }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .card h2 { margin-top: 0; font-size: 18px; color: #0284c7; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+    input[type="text"], input[type="email"], input[type="password"], input[type="tel"], input[type="number"], input[type="date"], select, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+    }
+    .radio-group, .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .radio-item, .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: normal;
+      cursor: pointer;
+    }
+    fieldset {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    legend {
+      font-weight: 600;
+      padding: 0 8px;
+      color: #334155;
+    }
+    .test-results {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 30px;
+    }
+    .test-results h3 { margin-top: 0; color: #38bdf8; }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>VoiceForm Acceptance Testbed: Static Forms</h1>
+  <p class="sub">Fixture page for verifying T1 (Standard Form), T2 (Nested Labels), T3 (ARIA Form), T4 (Orphan Fields), and T5 (Dropdowns & Radios).</p>
+
+  <!-- TEST CASE T1: Standard <form> with explicit <label for="..."> and validation constraints -->
+  <div class="card">
+    <h2>Test Case T1: Standard User Profile Form</h2>
+    <form id="profile-form" action="/submit-profile" method="POST">
+      <div class="form-group">
+        <label for="first-name">First Name *</label>
+        <input type="text" id="first-name" name="firstName" placeholder="Jane" required minlength="2" maxlength="30">
+      </div>
+      <div class="form-group">
+        <label for="last-name">Last Name *</label>
+        <input type="text" id="last-name" name="lastName" placeholder="Doe" required minlength="2" maxlength="30">
+      </div>
+      <div class="form-group">
+        <label for="user-email">Email Address *</label>
+        <input type="email" id="user-email" name="email" placeholder="jane.doe@example.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="user-age">Age</label>
+        <input type="number" id="user-age" name="age" min="18" max="120" step="1" value="28">
+      </div>
+    </form>
+  </div>
+
+  <!-- TEST CASE T2: Nested <label><input></label> pattern -->
+  <div class="card">
+    <h2>Test Case T2: Nested Label Enclosures</h2>
+    <form id="contact-nested-form">
+      <div class="form-group">
+        <label>
+          Primary Phone Number
+          <input type="tel" name="primaryPhone" placeholder="+1 (555) 000-0000" pattern="^\+?[0-9\s\-()]+$">
+        </label>
+      </div>
+      <div class="form-group">
+        <label>
+          Street Address:
+          <input type="text" name="streetAddress" placeholder="123 Market St, Apt 4B">
+        </label>
+      </div>
+    </form>
+  </div>
+
+  <!-- TEST CASE T3: Modern ARIA-labelled form controls -->
+  <div class="card">
+    <h2>Test Case T3: ARIA Labelled Controls</h2>
+    <form id="aria-form">
+      <div id="company-label-desc" style="display:none;">Legal Entity or Organization Name</div>
+      <div class="form-group">
+        <span id="company-title" style="font-weight:600; display:block; margin-bottom:6px;">Employer / Company</span>
+        <input type="text" id="company-name" name="company" aria-labelledby="company-title" aria-describedby="company-label-desc" placeholder="Acme Inc">
+      </div>
+      <div class="form-group">
+        <input type="text" id="job-title" name="jobTitle" aria-label="Job Title or Position" aria-required="true" placeholder="Senior Architect">
+      </div>
+    </form>
+  </div>
+
+  <!-- TEST CASE T4: Orphan fields living outside any <form> element -->
+  <div class="card" id="orphan-section">
+    <h2>Test Case T4: Orphan Fields (Outside &lt;form&gt;)</h2>
+    <p style="font-size:13px; color:#64748b;">Common SPA pattern: input widgets not enclosed in a &lt;form&gt; tag.</p>
+    <div class="form-group">
+      <label for="global-search">Global Search Query</label>
+      <input type="text" id="global-search" name="q" placeholder="Search documentation...">
+    </div>
+    <div class="form-group">
+      <label for="newsletter-email">Newsletter Subscription</label>
+      <input type="email" id="newsletter-email" name="newsletter" placeholder="Enter email for newsletter">
+    </div>
+  </div>
+
+  <!-- TEST CASE T5: Dropdowns (<select>), Radios with <fieldset><legend>, Checkboxes, Textarea -->
+  <div class="card">
+    <h2>Test Case T5: Dropdowns, Radios, Checkbox, Textarea</h2>
+    <form id="complex-controls-form">
+      <div class="form-group">
+        <label for="country-select">Country of Residence *</label>
+        <select id="country-select" name="country" required>
+          <option value="">-- Please select --</option>
+          <option value="US" selected>United States</option>
+          <option value="CA">Canada</option>
+          <option value="UK">United Kingdom</option>
+          <option value="IN">India</option>
+          <option value="DE">Germany</option>
+        </select>
+      </div>
+
+      <fieldset>
+        <legend>Preferred Shipping Speed *</legend>
+        <div class="radio-group">
+          <label class="radio-item" for="ship-std">
+            <input type="radio" id="ship-std" name="shippingSpeed" value="standard" checked required>
+            Standard Delivery (3-5 business days)
+          </label>
+          <label class="radio-item" for="ship-exp">
+            <input type="radio" id="ship-exp" name="shippingSpeed" value="express" required>
+            Express Courier (1-2 business days)
+          </label>
+          <label class="radio-item" for="ship-overnight">
+            <input type="radio" id="ship-overnight" name="shippingSpeed" value="overnight" required>
+            Priority Overnight (Next day morning)
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="form-group">
+        <label for="order-notes">Special Instructions</label>
+        <textarea id="order-notes" name="notes" rows="3" placeholder="Gate code or delivery instructions"></textarea>
+      </div>
+
+      <div class="checkbox-group">
+        <label class="checkbox-item" for="agree-terms">
+          <input type="checkbox" id="agree-terms" name="agreeTerms" required>
+          I agree to the Terms of Service and Privacy Policy *
+        </label>
+      </div>
+    </form>
+  </div>
+
+  <!-- Automated In-Page Acceptance Verification Suite -->
+  <div class="test-results" id="test-results-box">
+    <h3>Automated Acceptance Verification (T1 - T5)</h3>
+    <div id="test-output">Running tests against live DOM scanner...</div>
+  </div>
+
+  <!-- Inject the bundled content script to verify real in-page behavior -->
+  <script src="../extension/dist/content.js"></script>
+
+  <!-- Automated assertion script validating scanner output against acceptance criteria -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        const results = window.__VOICEFORM_SCAN_RESULT__;
+        const out = document.getElementById('test-output');
+        if (!results) {
+          out.innerHTML = '<span class="fail">FAILED: window.__VOICEFORM_SCAN_RESULT__ not found!</span>';
+          return;
+        }
+
+        const tests = [];
+
+        // T1: Standard Form Label Resolution & Validation
+        const profileForm = results.forms.find(f => f.formId === 'profile-form');
+        const firstNameField = profileForm?.fields.find(f => f.name === 'firstName');
+        const ageField = profileForm?.fields.find(f => f.name === 'age');
+        
+        tests.push({
+          id: 'T1',
+          name: 'Standard <form> Label Resolution & Constraints',
+          pass: profileForm !== undefined &&
+                firstNameField?.label === 'First Name' &&
+                firstNameField?.validation.required === true &&
+                firstNameField?.validation.minLength === 2 &&
+                ageField?.label === 'Age' &&
+                ageField?.validation.min === '18' &&
+                ageField?.currentValue === '28',
+          details: `First Name Label: "${firstNameField?.label}", Req: ${firstNameField?.validation.required}, Min: ${ageField?.validation.min}, Val: ${ageField?.currentValue}`
+        });
+
+        // T2: Nested Label Enclosures
+        const nestedForm = results.forms.find(f => f.formId === 'contact-nested-form');
+        const phoneField = nestedForm?.fields.find(f => f.name === 'primaryPhone');
+        const addressField = nestedForm?.fields.find(f => f.name === 'streetAddress');
+
+        tests.push({
+          id: 'T2',
+          name: 'Nested <label><input></label> Resolution',
+          pass: phoneField?.label === 'Primary Phone Number' &&
+                addressField?.label === 'Street Address',
+          details: `Phone Label: "${phoneField?.label}", Address Label: "${addressField?.label}"`
+        });
+
+        // T3: ARIA Labelled Controls
+        const ariaForm = results.forms.find(f => f.formId === 'aria-form');
+        const companyField = ariaForm?.fields.find(f => f.name === 'company');
+        const jobTitleField = ariaForm?.fields.find(f => f.name === 'jobTitle');
+
+        tests.push({
+          id: 'T3',
+          name: 'ARIA Label & aria-labelledby Resolution',
+          pass: companyField?.label === 'Employer / Company' &&
+                jobTitleField?.label === 'Job Title or Position' &&
+                jobTitleField?.validation.required === true,
+          details: `Company Label: "${companyField?.label}", Job Title Label: "${jobTitleField?.label}" (Req: ${jobTitleField?.validation.required})`
+        });
+
+        // T4: Orphan Fields (Outside <form>)
+        const orphanSearch = results.orphanFields.find(f => f.name === 'q');
+        const orphanNews = results.orphanFields.find(f => f.name === 'newsletter');
+
+        tests.push({
+          id: 'T4',
+          name: 'Orphan Fields Discovery Outside <form>',
+          pass: results.orphanFields.length === 2 &&
+                orphanSearch?.label === 'Global Search Query' &&
+                orphanNews?.label === 'Newsletter Subscription',
+          details: `Orphan count: ${results.orphanFields.length}, Search: "${orphanSearch?.label}", Newsletter: "${orphanNews?.label}"`
+        });
+
+        // T5: Dropdowns, Radios & Selectors
+        const complexForm = results.forms.find(f => f.formId === 'complex-controls-form');
+        const countryField = complexForm?.fields.find(f => f.name === 'country');
+        const radioGroup = complexForm?.fields.find(f => f.type === 'radio');
+        const termsField = complexForm?.fields.find(f => f.name === 'agreeTerms');
+
+        const radioOptionsOk = radioGroup?.radioOptions?.length === 3 &&
+                               radioGroup?.radioOptions[0].value === 'standard' &&
+                               radioGroup?.radioOptions[0].checked === true &&
+                               radioGroup?.radioOptions[1].value === 'express' &&
+                               !!radioGroup?.radioOptions[0].selector &&
+                               !!radioGroup?.radioOptions[1].selector;
+
+        tests.push({
+          id: 'T5',
+          name: 'Dropdowns (<select>), Radio Group Options & Target Selectors',
+          pass: countryField?.options?.length === 6 &&
+                countryField?.currentValue === 'US' &&
+                radioGroup?.label === 'Preferred Shipping Speed' &&
+                radioOptionsOk &&
+                termsField?.type === 'checkbox' &&
+                termsField?.validation.required === true,
+          details: `Select opts: ${countryField?.options?.length}, Radio Group: "${radioGroup?.label}" (3 items with selectors), Terms Req: ${termsField?.validation.required}`
+        });
+
+        let html = '';
+        let allPass = true;
+        for (const t of tests) {
+          if (!t.pass) allPass = false;
+          html += `<div><strong>[${t.id}] ${t.name}:</strong> <span class="${t.pass ? 'pass' : 'fail'}">${t.pass ? 'PASSED' : 'FAILED'}</span> - <small>${t.details}</small></div>`;
+        }
+
+        window.__VOICEFORM_TEST_RESULTS__ = { allPass, tests };
+        out.innerHTML = html;
+      }, 300);
+    });
+  </script>
+</body>
+</html>

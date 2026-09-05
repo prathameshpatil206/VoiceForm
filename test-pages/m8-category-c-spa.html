@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M8 — Category C: SPA-Style Form</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 40px 20px 100px;
+      line-height: 1.6;
+    }
+    .badge { display: inline-block; background: #f59e0b; color: #1c1917; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; text-transform: uppercase; }
+    h1 { margin: 4px 0 4px; font-size: 24px; color: #f8fafc; }
+    p.sub { color: #94a3b8; margin: 0 0 28px; font-size: 14px; }
+    #spa-root { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 28px; }
+    #spa-root h2 { margin: 0 0 20px; font-size: 17px; color: #f59e0b; }
+    .form-group { margin-bottom: 18px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px; }
+    input[type="text"], input[type="email"], input[type="tel"], input[type="password"], select {
+      width: 100%; box-sizing: border-box; padding: 9px 12px;
+      border: 1px solid #475569; border-radius: 6px; font-size: 14px;
+      background: #0f172a; color: #e2e8f0;
+    }
+    input:focus, select:focus {
+      outline: none; border-color: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245,158,11,0.15);
+    }
+    .btn {
+      display: inline-block; background: #f59e0b; color: #1c1917;
+      border: none; border-radius: 6px; padding: 10px 24px;
+      font-size: 14px; font-weight: 700; cursor: pointer;
+    }
+    .btn:hover { background: #d97706; }
+    .loading { color: #94a3b8; font-size: 14px; font-style: italic; padding: 20px 0; }
+    .info-bar { background: #1c1917; border: 1px solid #92400e; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #fbbf24; margin-bottom: 20px; }
+    #render-log { font-size: 11px; color: #64748b; margin-top: 20px; font-family: monospace; }
+    .field-status { display: inline-block; width: 8px; height: 8px; background: #22c55e; border-radius: 50%; margin-right: 6px; }
+  </style>
+</head>
+<body>
+
+  <div class="badge">M8 · Category C</div>
+  <h1>SPA-Style Dynamic Form</h1>
+  <p class="sub">Form rendered entirely via JavaScript — simulates React/Vue SPA pattern</p>
+
+  <div class="info-bar">
+    🎤 All fields created dynamically after DOMContentLoaded. Tests M2 synthetic event compatibility.
+  </div>
+
+  <div id="spa-root">
+    <div class="loading" id="loading-msg">⏳ Initializing SPA form renderer…</div>
+  </div>
+
+  <div id="render-log"></div>
+
+  <script>
+    /**
+     * Simulates React-style component mounting:
+     * 1. Short delay (simulates async data fetch / component mount cycle)
+     * 2. Renders fields via createElement / appendChild
+     * 3. Attaches React-style synthetic event shims (nativeInputValueSetter pattern)
+     * 4. Exposes __VOICEFORM_SCAN_RESULT__ for headless verification
+     */
+
+    const log = (msg) => {
+      const el = document.getElementById('render-log');
+      el.innerHTML += `<div><span class="field-status"></span>${msg}</div>`;
+    };
+
+    // ── React-style nativeInputValueSetter shim ──────────────────────────────
+    // This replicates what React does internally — it takes over the native setter
+    // so that setting .value directly does NOT trigger React's onChange.
+    // VoiceForm's M2 value-setter must dispatch a real InputEvent to bypass this.
+    function installReactShim(inputEl) {
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value'
+      )?.set;
+      const nativeSelectValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLSelectElement.prototype, 'value'
+      )?.set;
+
+      if (inputEl.tagName === 'SELECT') {
+        if (nativeSelectValueSetter) {
+          inputEl.__reactShimmedSetter = nativeSelectValueSetter;
+        }
+      } else {
+        if (nativeInputValueSetter) {
+          inputEl.__reactShimmedSetter = nativeInputValueSetter;
+        }
+      }
+
+      // Simulate React controlled-component behavior: track value in closure
+      let _reactValue = inputEl.value || '';
+
+      inputEl.addEventListener('input', (e) => {
+        _reactValue = e.target.value;
+        log(`[React shim] onChange fired: ${inputEl.name} = "${_reactValue}"`);
+      });
+      inputEl.addEventListener('change', (e) => {
+        _reactValue = e.target.value;
+      });
+
+      // Mark as React-managed for debugging
+      inputEl.dataset.reactManaged = 'true';
+    }
+
+    function createField(id, name, type, labelText, placeholder, extraAttrs = {}) {
+      const group = document.createElement('div');
+      group.className = 'form-group';
+
+      const label = document.createElement('label');
+      label.setAttribute('for', id);
+      label.textContent = labelText;
+
+      let input;
+      if (type === 'select') {
+        input = document.createElement('select');
+        const opts = extraAttrs.options || [];
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = `— Select ${labelText} —`;
+        input.appendChild(defaultOpt);
+        opts.forEach(([val, text]) => {
+          const opt = document.createElement('option');
+          opt.value = val;
+          opt.textContent = text;
+          input.appendChild(opt);
+        });
+      } else {
+        input = document.createElement('input');
+        input.type = type;
+        if (placeholder) input.placeholder = placeholder;
+      }
+
+      input.id = id;
+      input.name = name;
+      if (extraAttrs.autocomplete) input.autocomplete = extraAttrs.autocomplete;
+      if (extraAttrs.required) input.required = true;
+
+      installReactShim(input);
+
+      group.appendChild(label);
+      group.appendChild(input);
+      return group;
+    }
+
+    async function mountSPAForm() {
+      // Simulate async component fetch (50ms)
+      await new Promise(r => setTimeout(r, 50));
+
+      const root = document.getElementById('spa-root');
+      root.innerHTML = '';
+
+      const title = document.createElement('h2');
+      title.textContent = 'SPA Registration Form';
+      root.appendChild(title);
+
+      const form = document.createElement('form');
+      form.id = 'spa-form';
+      form.setAttribute('data-framework', 'simulated-react');
+      form.noValidate = true;
+
+      // Mount fields sequentially with micro-delays (simulates React fiber rendering)
+      const fieldDefs = [
+        ['spa-first-name', 'first_name',  'text',   'First Name',    'Pratham',  { autocomplete: 'given-name' }],
+        ['spa-last-name',  'last_name',   'text',   'Last Name',     'Test',     { autocomplete: 'family-name' }],
+        ['spa-email',      'email',       'email',  'Email Address', 'pratham.test@example.com', { autocomplete: 'email' }],
+        ['spa-phone',      'phone',       'tel',    'Phone Number',  '5550101234', { autocomplete: 'tel' }],
+        ['spa-company',    'company',     'text',   'Company',       'Acme Corp',  {}],
+        ['spa-role',       'job_title',   'select', 'Role', null, {
+          options: [
+            ['student','Student'],
+            ['developer','Developer'],
+            ['designer','Designer'],
+            ['manager','Manager'],
+            ['other','Other']
+          ]
+        }],
+        ['spa-city',       'city',        'text',   'City',          'Hubli',    { autocomplete: 'address-level2' }],
+      ];
+
+      for (const def of fieldDefs) {
+        await new Promise(r => setTimeout(r, 10));
+        const [id, name, type, labelText, placeholder, extras] = def;
+        const fieldEl = createField(id, name, type, labelText, placeholder, extras);
+        form.appendChild(fieldEl);
+        log(`Mounted field: ${name} (${type})`);
+      }
+
+      const submitBtn = document.createElement('button');
+      submitBtn.type = 'button';
+      submitBtn.className = 'btn';
+      submitBtn.textContent = 'Submit (Test Only)';
+      submitBtn.onclick = () => {
+        const data = {};
+        new FormData(form).forEach((v, k) => { data[k] = v; });
+        console.log('[M8-CAT-C] SPA form data:', JSON.stringify(data, null, 2));
+        alert('[M8] SPA form submitted (test mode). Check console for data.');
+      };
+      form.appendChild(submitBtn);
+
+      root.appendChild(form);
+      document.getElementById('loading-msg') && (document.getElementById('loading-msg').remove());
+      log('✅ SPA form render complete.');
+
+      window.__M8_CATEGORY__ = 'C';
+      window.__M8_EXPECTED_FIELDS__ = ['first_name','last_name','email','phone','company','job_title','city'];
+      window.__M8_SPA_MOUNTED__ = true;
+    }
+
+    // Mount after a short delay like a real SPA framework
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(mountSPAForm, 100);
+    });
+  </script>
+
+</body>
+</html>

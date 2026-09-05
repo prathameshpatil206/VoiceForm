@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm Inspector</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <span class="bolt">⚡</span>
+      <span class="title">VoiceForm</span>
+    </div>
+    <span class="badge">M1 Scanner</span>
+  </div>
+
+  <div class="content" id="popup-content">
+    <div class="loading">Scanning active tab...</div>
+  </div>
+
+  <div class="footer">
+    <button id="rescan-btn" class="btn">Rescan Active Tab</button>
+  </div>
+
+  <script type="module" src="popup.ts"></script>
+</body>
+</html>

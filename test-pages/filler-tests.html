@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M2 Testbed - Form Filler Engine</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 30px 20px 100px;
+      line-height: 1.5;
+    }
+    h1 { color: #0369a1; margin-bottom: 6px; }
+    p.sub { color: #64748b; margin-top: 0; margin-bottom: 24px; }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .card h2 { margin-top: 0; font-size: 17px; color: #0f172a; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-group { margin-bottom: 14px; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px; color: #334155; }
+    input, select, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    input:disabled, select:disabled, textarea:disabled {
+      background-color: #f1f5f9;
+      cursor: not-allowed;
+    }
+    input[readonly] {
+      background-color: #f8fafc;
+      color: #64748b;
+    }
+    .radio-row { display: flex; gap: 16px; margin-top: 6px; }
+    .radio-label { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
+    .btn {
+      background: #0284c7;
+      color: #ffffff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:hover { background: #0369a1; }
+    .test-suite-box {
+      background: #090d16;
+      color: #f8fafc;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 30px;
+    }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+    .event-badge {
+      display: inline-block;
+      font-size: 11px;
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>VoiceForm Acceptance Testbed: Form Filler (M2)</h1>
+  <p class="sub">Fixture page for verifying T1 through T10 covering text, textarea, date/time, select, checkbox, radio groups, constraints, dynamic fields, and framework compatibility.</p>
+
+  <div class="card">
+    <h2>1. Text & Numeric Inputs (T1) & Textarea (T2)</h2>
+    <div class="grid">
+      <div class="form-group">
+        <label for="test-text">Full Name (Text)</label>
+        <input type="text" id="test-text" name="fullName" placeholder="Enter name">
+      </div>
+      <div class="form-group">
+        <label for="test-email">Email Address</label>
+        <input type="email" id="test-email" name="email" placeholder="name@example.com">
+      </div>
+      <div class="form-group">
+        <label for="test-tel">Telephone</label>
+        <input type="tel" id="test-tel" name="phone" placeholder="+1-555-0100">
+      </div>
+      <div class="form-group">
+        <label for="test-number">Quantity (Number)</label>
+        <input type="number" id="test-number" name="quantity" min="1" max="100">
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="test-bio">User Bio (Textarea - T2)</label>
+      <textarea id="test-bio" name="bio" rows="3" placeholder="Tell us about yourself..."></textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Date & Time Inputs (T3)</h2>
+    <div class="grid">
+      <div class="form-group">
+        <label for="test-date">Appointment Date</label>
+        <input type="date" id="test-date" name="appointmentDate">
+      </div>
+      <div class="form-group">
+        <label for="test-time">Appointment Time</label>
+        <input type="time" id="test-time" name="appointmentTime">
+      </div>
+      <div class="form-group" style="grid-column: span 2;">
+        <label for="test-datetime">Flight Departure (Datetime-Local)</label>
+        <input type="datetime-local" id="test-datetime" name="flightDeparture">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. Select Dropdown (T4) & Checkbox (T5)</h2>
+    <div class="grid">
+      <div class="form-group">
+        <label for="test-select">Membership Tier (Select - T4)</label>
+        <select id="test-select" name="membership">
+          <option value="">-- Choose tier --</option>
+          <option value="gold">Gold Membership</option>
+          <option value="platinum">Platinum VIP Club</option>
+          <option value="diamond" disabled>Diamond Tier (Unavailable)</option>
+        </select>
+      </div>
+      <div class="form-group" style="display:flex; align-items:center; margin-top:20px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;" for="test-checkbox">
+          <input type="checkbox" id="test-checkbox" name="newsletterOptIn">
+          Subscribe to Newsletter (Checkbox - T5)
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4. Radio Group (T6)</h2>
+    <fieldset style="border:1px solid #cbd5e1; border-radius:6px; padding:12px;">
+      <legend style="font-weight:600; padding:0 6px;">Subscription Plan (Radio Group - T6)</legend>
+      <div class="radio-row">
+        <label class="radio-label" for="plan-free">
+          <input type="radio" id="plan-free" name="subscriptionPlan" value="free" checked>
+          Free Tier
+        </label>
+        <label class="radio-label" for="plan-pro">
+          <input type="radio" id="plan-pro" name="subscriptionPlan" value="pro">
+          Pro ($20/mo)
+        </label>
+        <label class="radio-label" for="plan-ent">
+          <input type="radio" id="plan-ent" name="subscriptionPlan" value="enterprise">
+          Enterprise
+        </label>
+      </div>
+    </fieldset>
+  </div>
+
+  <div class="card">
+    <h2>5. Disabled & Read-Only Constraints (T7)</h2>
+    <div class="grid">
+      <div class="form-group">
+        <label for="test-disabled">Disabled Field (Must Reject Modification)</label>
+        <input type="text" id="test-disabled" name="disabledField" value="Cannot Touch" disabled>
+      </div>
+      <div class="form-group">
+        <label for="test-readonly">Read-Only Field (Must Reject Modification)</label>
+        <input type="text" id="test-readonly" name="readOnlyField" value="Read Only Data" readonly>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>6. Dynamic Field Target (T8)</h2>
+    <div id="dynamic-target-container">
+      <p style="color:#64748b; font-size:13px;">Dynamic fields injected at runtime will appear here.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>7. Framework-Controlled Simulated Input (T9)</h2>
+    <p style="color:#64748b; font-size:13px;">Simulates React-style value tracker where direct property setter fails without synthetic event dispatch.</p>
+    <div class="form-group">
+      <label for="react-controlled">React Controlled Field</label>
+      <input type="text" id="react-controlled" name="reactControlled" placeholder="React controlled state">
+      <span id="react-state-display" class="event-badge">State: empty</span>
+    </div>
+  </div>
+
+  <!-- Automated M2 Test Suite Results Box -->
+  <div class="test-suite-box">
+    <h3 style="margin-top:0; color:#38bdf8;">Automated M2 Acceptance Verification (T1 - T10)</h3>
+    <button class="btn" id="btn-run-m2-tests">Run M2 Test Suite</button>
+    <div id="test-output" style="margin-top:16px;">Click button to execute tests...</div>
+  </div>
+
+  <!-- Content script bundle -->
+  <script src="../extension/dist/content.js"></script>
+
+  <script>
+    // Set up Framework-Controlled Mock (T9)
+    (function setupReactMock() {
+      const el = document.getElementById('react-controlled');
+      const stateDisplay = document.getElementById('react-state-display');
+      let internalState = '';
+
+      // Install React-like _valueTracker
+      (el)._valueTracker = {
+        getValue() { return internalState; },
+        setValue(v) { internalState = v; }
+      };
+
+      el.addEventListener('input', (e) => {
+        internalState = e.target.value;
+        stateDisplay.textContent = 'State: ' + internalState;
+        (el)._reactState = internalState;
+      });
+
+      el.addEventListener('change', (e) => {
+        internalState = e.target.value;
+        stateDisplay.textContent = 'State (changed): ' + internalState;
+        (el)._reactState = internalState;
+      });
+    })();
+
+    // Track event listeners on all inputs to verify events are dispatched
+    const eventLog = {
+      inputsFired: new Set(),
+      changesFired: new Set()
+    };
+
+    document.querySelectorAll('input, select, textarea').forEach(el => {
+      el.addEventListener('input', () => {
+        if (el.id) eventLog.inputsFired.add(el.id);
+      });
+      el.addEventListener('change', () => {
+        if (el.id) eventLog.changesFired.add(el.id);
+      });
+    });
+
+    async function runM2Tests() {
+      const out = document.getElementById('test-output');
+      out.innerHTML = 'Executing M2 DOM Form Filler tests...';
+
+      const fillField = window.__VOICEFORM_FILL_FIELD__;
+      if (!fillField) {
+        out.innerHTML = '<span class="fail">FAILED: window.__VOICEFORM_FILL_FIELD__ not found.</span>';
+        return;
+      }
+
+      const results = [];
+
+      // T1: Text/Email/Tel/Number
+      const t1Text = fillField({ field_id: 'test-text', value: 'Alice Walker' });
+      const t1Email = fillField({ field_id: 'test-email', value: 'alice@example.com' });
+      const t1Tel = fillField({ field_id: 'test-tel', value: '+1-555-4321' });
+      const t1Num = fillField({ field_id: 'test-number', value: 42 });
+
+      const elText = document.getElementById('test-text');
+      const elEmail = document.getElementById('test-email');
+      const elTel = document.getElementById('test-tel');
+      const elNum = document.getElementById('test-number');
+
+      const t1Pass = t1Text.success && t1Email.success && t1Tel.success && t1Num.success &&
+                     elText.value === 'Alice Walker' &&
+                     elEmail.value === 'alice@example.com' &&
+                     elTel.value === '+1-555-4321' &&
+                     elNum.value === '42' &&
+                     eventLog.inputsFired.has('test-text') &&
+                     eventLog.changesFired.has('test-email');
+
+      results.push({
+        id: 'T1',
+        name: 'Text / Email / Tel / Number Filling & Events',
+        pass: t1Pass,
+        details: `Text: "${elText.value}", Email: "${elEmail.value}", Tel: "${elTel.value}", Num: "${elNum.value}". Events verified.`
+      });
+
+      // T2: Textarea
+      const t2Bio = fillField({ field_id: 'test-bio', value: 'Senior Systems Architect\nLoves VoiceForm.' });
+      const elBio = document.getElementById('test-bio');
+      const t2Pass = t2Bio.success &&
+                     elBio.value.includes('Senior Systems Architect') &&
+                     eventLog.inputsFired.has('test-bio');
+
+      results.push({
+        id: 'T2',
+        name: 'Textarea Filling & Multiline Support',
+        pass: t2Pass,
+        details: `Bio value: "${elBio.value.replace(/\n/g, ' ')}", Event fired: ${eventLog.inputsFired.has('test-bio')}`
+      });
+
+      // T3: Date / Time / Datetime-Local
+      const t3Date = fillField({ field_id: 'test-date', value: '2026-11-20' });
+      const t3Time = fillField({ field_id: 'test-time', value: '15:45' });
+      const t3Dt = fillField({ field_id: 'test-datetime', value: '2026-11-20T15:45' });
+
+      const elDate = document.getElementById('test-date');
+      const elTime = document.getElementById('test-time');
+      const elDt = document.getElementById('test-datetime');
+
+      const t3Pass = t3Date.success && t3Time.success && t3Dt.success &&
+                     elDate.value === '2026-11-20' &&
+                     elTime.value === '15:45' &&
+                     elDt.value === '2026-11-20T15:45';
+
+      results.push({
+        id: 'T3',
+        name: 'Date & Time Normalized Input Filling',
+        pass: t3Pass,
+        details: `Date: ${elDate.value}, Time: ${elTime.value}, Datetime: ${elDt.value}`
+      });
+
+      // T4: Select Dropdowns (by value, by label, and disabled check)
+      const elSelect = document.getElementById('test-select');
+      
+      // Step A: Select by value
+      const t4ValRes = fillField({ field_id: 'test-select', value: 'gold' });
+      const valMatchOk = t4ValRes.success && elSelect.value === 'gold';
+
+      // Step B: Select by visible label
+      const t4LabelRes = fillField({ field_id: 'test-select', value: 'Platinum VIP Club' });
+      const labelMatchOk = t4LabelRes.success && elSelect.value === 'platinum';
+
+      // Step C: Reject disabled option
+      const t4DisabledRes = fillField({ field_id: 'test-select', value: 'diamond' });
+      const disabledRejected = !t4DisabledRes.success && t4DisabledRes.error === 'INVALID_OPTION';
+
+      const t4Pass = valMatchOk && labelMatchOk && disabledRejected;
+      results.push({
+        id: 'T4',
+        name: 'Select by Value, Label, and Disabled Option Rejection',
+        pass: t4Pass,
+        details: `By value: ${valMatchOk} (${elSelect.value}), By label: ${labelMatchOk}, Disabled rejected: ${disabledRejected}`
+      });
+
+      // T5: Checkbox (Check & Uncheck)
+      const elCheck = document.getElementById('test-checkbox');
+      const t5Check = fillField({ field_id: 'test-checkbox', value: true });
+      const checkedOk = t5Check.success && elCheck.checked === true;
+
+      const t5Uncheck = fillField({ field_id: 'test-checkbox', value: false });
+      const uncheckedOk = t5Uncheck.success && elCheck.checked === false;
+
+      const t5Pass = checkedOk && uncheckedOk;
+      results.push({
+        id: 'T5',
+        name: 'Checkbox Checked & Unchecked State Toggling',
+        pass: t5Pass,
+        details: `Check: ${checkedOk}, Uncheck: ${uncheckedOk}`
+      });
+
+      // T6: Radio Groups
+      const elPlanPro = document.getElementById('plan-pro');
+      const elPlanEnt = document.getElementById('plan-ent');
+
+      // Fill by value
+      const t6Pro = fillField({ field_id: 'plan-pro', value: 'pro' });
+      const proOk = elPlanPro.checked === true;
+
+      // Fill by label "Enterprise"
+      const t6Ent = fillField({ field_id: 'vf-rg-subscriptionPlan', value: 'Enterprise' });
+      const entOk = elPlanEnt.checked === true;
+
+      const t6Pass = proOk && entOk;
+      results.push({
+        id: 'T6',
+        name: 'Radio Group Selection by Value & Label',
+        pass: t6Pass,
+        details: `Select 'pro': ${proOk}, Select 'Enterprise' label: ${entOk}`
+      });
+
+      // T7: Disabled & Read-Only Safety Constraints
+      const t7Dis = fillField({ field_id: 'test-disabled', value: 'Hacked Value' });
+      const elDis = document.getElementById('test-disabled');
+      const disProtected = !t7Dis.success &&
+                           t7Dis.error === 'FIELD_DISABLED' &&
+                           elDis.value === 'Cannot Touch';
+
+      const t7Ro = fillField({ field_id: 'test-readonly', value: 'Hacked Value' });
+      const elRo = document.getElementById('test-readonly');
+      const roProtected = !t7Ro.success &&
+                          t7Ro.error === 'FIELD_READONLY' &&
+                          elRo.value === 'Read Only Data';
+
+      const t7Pass = disProtected && roProtected;
+      results.push({
+        id: 'T7',
+        name: 'Field Safety Guards: Disabled & Read-Only Rejection',
+        pass: t7Pass,
+        details: `Disabled blocked: ${disProtected} (err: ${t7Dis.error}), Readonly blocked: ${roProtected} (err: ${t7Ro.error})`
+      });
+
+      // T8: Dynamically Inserted Fields
+      const dynContainer = document.getElementById('dynamic-target-container');
+      const dynInput = document.createElement('input');
+      dynInput.type = 'text';
+      dynInput.id = 'dynamic-promo-input';
+      dynInput.name = 'promoCode';
+      dynContainer.appendChild(dynInput);
+
+      const t8Res = fillField({ field_id: 'dynamic-promo-input', value: 'VOICE50' });
+      const t8Pass = t8Res.success && dynInput.value === 'VOICE50';
+
+      results.push({
+        id: 'T8',
+        name: 'Dynamically Injected Field Resolution & Filling',
+        pass: t8Pass,
+        details: `Injected field value: "${dynInput.value}", Success: ${t8Res.success}`
+      });
+
+      // T9: Framework-Controlled Input Verification
+      const elReact = document.getElementById('react-controlled');
+      const t9Res = fillField({ field_id: 'react-controlled', value: 'Framework Synthetic Value' });
+      const t9Pass = t9Res.success &&
+                     elReact.value === 'Framework Synthetic Value' &&
+                     (elReact)._reactState === 'Framework Synthetic Value';
+
+      results.push({
+        id: 'T9',
+        name: 'Framework (React) Synthetic State Synchronization',
+        pass: t9Pass,
+        details: `DOM value: "${elReact.value}", Mock State: "${(elReact)._reactState}"`
+      });
+
+      // T10: Missing / Invalid Field Handling
+      const t10Res = fillField({ field_id: 'non-existent-field-xyz', value: 'Does not matter' });
+      const t10Pass = !t10Res.success && t10Res.error === 'FIELD_NOT_FOUND';
+
+      results.push({
+        id: 'T10',
+        name: 'Missing / Invalid Field Graceful Error Handling',
+        pass: t10Pass,
+        details: `Success: ${t10Res.success}, Error Code: ${t10Res.error}`
+      });
+
+      // Render Results
+      let html = '';
+      let allPass = true;
+      for (const r of results) {
+        if (!r.pass) allPass = false;
+        html += `<div><strong>[${r.id}] ${r.name}:</strong> <span class="${r.pass ? 'pass' : 'fail'}">${r.pass ? 'PASSED' : 'FAILED'}</span> - <small>${r.details}</small></div>`;
+      }
+
+      window.__VOICEFORM_M2_RESULTS__ = { allPass, results };
+      out.innerHTML = html;
+    }
+
+    document.getElementById('btn-run-m2-tests').addEventListener('click', runM2Tests);
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(runM2Tests, 400);
+    });
+  </script>
+</body>
+</html>

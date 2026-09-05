@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M8 — Category E: Dynamic Form</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fdf4ff;
+      color: #1e293b;
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 40px 20px 100px;
+      line-height: 1.6;
+    }
+    .badge { display: inline-block; background: #9333ea; color: white; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; text-transform: uppercase; }
+    h1 { margin: 4px 0 4px; font-size: 24px; color: #0f172a; }
+    p.sub { color: #64748b; margin: 0 0 28px; font-size: 14px; }
+    .card { background: #fff; border: 1px solid #e9d5ff; border-radius: 10px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 24px; }
+    .card h2 { margin: 0 0 20px; font-size: 17px; color: #9333ea; }
+    .form-group { margin-bottom: 18px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="date"], select, textarea {
+      width: 100%; box-sizing: border-box; padding: 9px 12px;
+      border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; background: #fafafa;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: #9333ea; box-shadow: 0 0 0 3px rgba(147,51,234,0.12); background: #fff;
+    }
+    .conditional-section {
+      display: none;
+      background: #fdf4ff;
+      border: 1px solid #e9d5ff;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-top: 12px;
+    }
+    .conditional-section.visible { display: block; }
+    .animated-field {
+      animation: slideIn 0.25s ease-out;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .step-nav { display: flex; gap: 8px; margin-bottom: 20px; }
+    .step-dot { width: 10px; height: 10px; border-radius: 50%; background: #e9d5ff; cursor: pointer; }
+    .step-dot.active { background: #9333ea; }
+    .step-panel { display: none; }
+    .step-panel.active { display: block; }
+    .btn { display: inline-block; background: #9333ea; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer; margin-right: 6px; }
+    .btn-outline { background: transparent; border: 1px solid #9333ea; color: #9333ea; }
+    .btn:hover { opacity: 0.9; }
+    .dynamic-log { font-size: 11px; color: #9333ea; font-family: monospace; margin-top: 8px; }
+    .info-bar { background: #fdf4ff; border: 1px solid #e9d5ff; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #6b21a8; margin-bottom: 20px; }
+    .mutation-badge { display: inline-block; font-size: 10px; background: #9333ea; color: white; border-radius: 3px; padding: 1px 5px; margin-left: 6px; }
+  </style>
+</head>
+<body>
+
+  <div class="badge">M8 · Category E</div>
+  <h1>Dynamic / Conditional Form</h1>
+  <p class="sub">Fields appear via JS based on user interaction — tests M1 mutation watcher + M2 filler</p>
+
+  <div class="info-bar">
+    🎤 Change the "Account Type" dropdown to reveal conditional fields dynamically added to the DOM
+  </div>
+
+  <!-- ── Part 1: Conditional fields via CSS show/hide ────────────────────── -->
+  <div class="card">
+    <h2>Part 1 — Conditional Show/Hide</h2>
+    <form id="dynamic-form-1" novalidate>
+
+      <div class="form-group">
+        <label for="dyn-account-type">Account Type</label>
+        <select id="dyn-account-type" name="account_type" onchange="handleAccountTypeChange(this.value)">
+          <option value="">— Select account type —</option>
+          <option value="personal">Personal</option>
+          <option value="business">Business</option>
+          <option value="nonprofit">Non-profit</option>
+        </select>
+      </div>
+
+      <!-- Always-visible base fields -->
+      <div class="form-group">
+        <label for="dyn-name">Full Name</label>
+        <input type="text" id="dyn-name" name="full_name" autocomplete="name" placeholder="Pratham Test">
+      </div>
+      <div class="form-group">
+        <label for="dyn-email">Email</label>
+        <input type="email" id="dyn-email" name="email" autocomplete="email" placeholder="pratham.test@example.com">
+      </div>
+
+      <!-- Conditional: Business section (CSS hidden, always in DOM) -->
+      <div class="conditional-section" id="business-section">
+        <div class="form-group">
+          <label for="dyn-company">Company Name <span class="mutation-badge">conditional</span></label>
+          <input type="text" id="dyn-company" name="company" placeholder="Acme Corp">
+        </div>
+        <div class="form-group">
+          <label for="dyn-ein">Tax ID / EIN <span class="mutation-badge">conditional</span></label>
+          <input type="text" id="dyn-ein" name="tax_id" placeholder="12-3456789">
+        </div>
+        <div class="form-group">
+          <label for="dyn-employees">Number of Employees <span class="mutation-badge">conditional</span></label>
+          <select id="dyn-employees" name="employee_count">
+            <option value="">— Select —</option>
+            <option value="1-10">1–10</option>
+            <option value="11-50">11–50</option>
+            <option value="51-200">51–200</option>
+            <option value="200+">200+</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Conditional: Non-profit section -->
+      <div class="conditional-section" id="nonprofit-section">
+        <div class="form-group">
+          <label for="dyn-org-name">Organization Name <span class="mutation-badge">conditional</span></label>
+          <input type="text" id="dyn-org-name" name="organization_name" placeholder="Help Foundation">
+        </div>
+        <div class="form-group">
+          <label for="dyn-mission">Mission Statement <span class="mutation-badge">conditional</span></label>
+          <textarea id="dyn-mission" name="mission_statement" rows="3" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #cbd5e1;border-radius:6px;" placeholder="Our mission is..."></textarea>
+        </div>
+      </div>
+
+      <div id="log-1" class="dynamic-log"></div>
+    </form>
+  </div>
+
+  <!-- ── Part 2: Fields added dynamically to DOM via appendChild ────────── -->
+  <div class="card">
+    <h2>Part 2 — DOM-Injected Dynamic Fields</h2>
+    <form id="dynamic-form-2" novalidate>
+
+      <div class="form-group">
+        <label for="dyn2-step">Onboarding Step</label>
+        <select id="dyn2-step" name="onboarding_step" onchange="handleOnboardingStep(this.value)">
+          <option value="">— Choose step —</option>
+          <option value="profile">Profile Setup</option>
+          <option value="security">Security Setup</option>
+          <option value="preferences">Preferences</option>
+        </select>
+      </div>
+
+      <div id="dynamic-fields-container">
+        <!-- Fields injected here by JS -->
+      </div>
+
+      <div id="log-2" class="dynamic-log"></div>
+    </form>
+  </div>
+
+  <!-- ── Part 3: Multi-step with dynamic step content ─────────────────── -->
+  <div class="card">
+    <h2>Part 3 — Multi-step with Dynamic Content</h2>
+
+    <div class="step-nav" id="step-nav">
+      <div class="step-dot active" title="Step 1"></div>
+      <div class="step-dot" title="Step 2"></div>
+      <div class="step-dot" title="Step 3"></div>
+    </div>
+
+    <form id="dynamic-form-3" novalidate>
+      <div id="multistep-container">
+        <!-- Step panels injected dynamically -->
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // ── Part 1: Conditional sections via CSS ─────────────────────────────
+    function handleAccountTypeChange(value) {
+      document.getElementById('business-section').classList.toggle('visible', value === 'business');
+      document.getElementById('nonprofit-section').classList.toggle('visible', value === 'nonprofit');
+      document.getElementById('log-1').textContent = `→ account_type changed to "${value}". Conditional section now visible: ${value || 'none'}`;
+    }
+
+    // ── Part 2: Dynamic DOM injection ────────────────────────────────────
+    const stepFieldDefs = {
+      profile: [
+        { id: 'dyn2-first-name', name: 'first_name',  type: 'text',   label: 'First Name',   placeholder: 'Pratham' },
+        { id: 'dyn2-last-name',  name: 'last_name',   type: 'text',   label: 'Last Name',    placeholder: 'Test' },
+        { id: 'dyn2-dob',        name: 'date_of_birth', type: 'date', label: 'Date of Birth', placeholder: '' },
+      ],
+      security: [
+        { id: 'dyn2-hint-q',    name: 'security_hint', type: 'text', label: 'Security Hint (not a password)', placeholder: 'Favorite book' },
+        { id: 'dyn2-backup-email', name: 'backup_email', type: 'email', label: 'Backup Email', placeholder: 'backup@example.com' },
+      ],
+      preferences: [
+        { id: 'dyn2-lang',      name: 'language',     type: 'text',  label: 'Preferred Language', placeholder: 'English' },
+        { id: 'dyn2-timezone',  name: 'timezone',     type: 'text',  label: 'Timezone',           placeholder: 'Asia/Kolkata' },
+        { id: 'dyn2-theme',     name: 'theme',        type: 'text',  label: 'UI Theme',           placeholder: 'dark' },
+      ]
+    };
+
+    function handleOnboardingStep(step) {
+      const container = document.getElementById('dynamic-fields-container');
+      container.innerHTML = '';
+
+      if (!step || !stepFieldDefs[step]) {
+        document.getElementById('log-2').textContent = '→ Cleared dynamic fields.';
+        return;
+      }
+
+      const defs = stepFieldDefs[step];
+      defs.forEach((def, i) => {
+        setTimeout(() => {
+          const group = document.createElement('div');
+          group.className = 'form-group animated-field';
+
+          const label = document.createElement('label');
+          label.setAttribute('for', def.id);
+          label.innerHTML = `${def.label} <span class="mutation-badge">DOM-injected</span>`;
+
+          const input = document.createElement('input');
+          input.type = def.type;
+          input.id = def.id;
+          input.name = def.name;
+          if (def.placeholder) input.placeholder = def.placeholder;
+
+          group.appendChild(label);
+          group.appendChild(input);
+          container.appendChild(group);
+
+          document.getElementById('log-2').textContent =
+            `→ Injected ${i + 1}/${defs.length} fields for step "${step}" (last: ${def.name})`;
+        }, i * 80);
+      });
+    }
+
+    // ── Part 3: Multi-step dynamic content ───────────────────────────────
+    const multiStepDefs = [
+      {
+        title: 'Step 1: Contact',
+        fields: [
+          { id: 'ms-phone', name: 'phone', type: 'tel', label: 'Phone Number', placeholder: '5550101234' },
+          { id: 'ms-city',  name: 'city',  type: 'text', label: 'City',        placeholder: 'Hubli' },
+        ]
+      },
+      {
+        title: 'Step 2: Professional',
+        fields: [
+          { id: 'ms-company', name: 'company',   type: 'text', label: 'Company', placeholder: 'Acme Corp' },
+          { id: 'ms-role',    name: 'job_title', type: 'text', label: 'Role',    placeholder: 'Engineer' },
+        ]
+      },
+      {
+        title: 'Step 3: Review',
+        fields: [
+          { id: 'ms-notes', name: 'notes', type: 'text', label: 'Final Notes', placeholder: 'Anything to add?' },
+        ]
+      }
+    ];
+
+    let currentMultiStep = 0;
+
+    function renderMultiStep(idx) {
+      const container = document.getElementById('multistep-container');
+      container.innerHTML = '';
+
+      const def = multiStepDefs[idx];
+      const title = document.createElement('h3');
+      title.textContent = def.title;
+      title.style.cssText = 'margin:0 0 16px;font-size:14px;color:#9333ea;';
+      container.appendChild(title);
+
+      def.fields.forEach(f => {
+        const group = document.createElement('div');
+        group.className = 'form-group animated-field';
+
+        const label = document.createElement('label');
+        label.setAttribute('for', f.id);
+        label.textContent = f.label;
+
+        const input = document.createElement('input');
+        input.type = f.type;
+        input.id = f.id;
+        input.name = f.name;
+        input.placeholder = f.placeholder || '';
+
+        group.appendChild(label);
+        group.appendChild(input);
+        container.appendChild(group);
+      });
+
+      const navDiv = document.createElement('div');
+      navDiv.style.cssText = 'margin-top:16px;';
+      if (idx > 0) {
+        const back = document.createElement('button');
+        back.type = 'button'; back.className = 'btn btn-outline'; back.textContent = '← Back';
+        back.onclick = () => goMultiStep(idx - 1);
+        navDiv.appendChild(back);
+      }
+      if (idx < multiStepDefs.length - 1) {
+        const next = document.createElement('button');
+        next.type = 'button'; next.className = 'btn'; next.textContent = 'Next →';
+        next.onclick = () => goMultiStep(idx + 1);
+        navDiv.appendChild(next);
+      } else {
+        const submit = document.createElement('button');
+        submit.type = 'button'; submit.className = 'btn'; submit.textContent = 'Submit (Test Only)';
+        submit.onclick = () => alert('[M8] Dynamic multi-step form submitted (test mode).');
+        navDiv.appendChild(submit);
+      }
+      container.appendChild(navDiv);
+
+      // Update dots
+      document.querySelectorAll('.step-dot').forEach((d, i) => {
+        d.classList.toggle('active', i === idx);
+      });
+
+      currentMultiStep = idx;
+    }
+
+    function goMultiStep(idx) {
+      renderMultiStep(idx);
+    }
+
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      renderMultiStep(0);
+    });
+
+    window.__M8_CATEGORY__ = 'E';
+    window.__M8_EXPECTED_FIELDS__ = [
+      'account_type','full_name','email',
+      'onboarding_step',
+      'phone','city'  // multi-step step 1 fields
+    ];
+  </script>
+
+</body>
+</html>

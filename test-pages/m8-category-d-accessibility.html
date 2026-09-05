@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M8 — Category D: Accessibility-Heavy Form</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0fdf4;
+      color: #1e293b;
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 40px 20px 100px;
+      line-height: 1.6;
+    }
+    .badge { display: inline-block; background: #16a34a; color: white; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; text-transform: uppercase; }
+    h1 { margin: 4px 0 4px; font-size: 24px; color: #0f172a; }
+    p.sub { color: #64748b; margin: 0 0 28px; font-size: 14px; }
+    .card { background: #fff; border: 1px solid #bbf7d0; border-radius: 10px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 24px; }
+    .card h2 { margin: 0 0 20px; font-size: 17px; color: #16a34a; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    input[type="text"], input[type="email"], input[type="tel"], input[type="date"], select, textarea {
+      width: 100%; box-sizing: border-box; padding: 9px 12px;
+      border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; background: #fafafa;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.12); background: #fff;
+    }
+    fieldset { border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+    legend { font-size: 13px; font-weight: 700; color: #166534; padding: 0 6px; }
+    .radio-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+    .radio-item input { width: auto; margin: 0; }
+
+    /* Nested label test: label wrapping input */
+    .nested-label {
+      display: flex; align-items: center; gap: 10px;
+      border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 14px;
+      cursor: pointer; font-weight: normal; margin-bottom: 8px;
+    }
+    .nested-label input { width: auto; margin: 0; }
+
+    /* Described-by test */
+    .field-description { font-size: 12px; color: #6b7280; margin-top: 4px; }
+
+    .hint { font-size: 11px; color: #16a34a; font-weight: 600; margin-bottom: 4px; }
+    .btn { display: inline-block; background: #16a34a; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn:hover { background: #15803d; }
+    .info-bar { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #166534; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+
+  <div class="badge">M8 · Category D</div>
+  <h1>Accessibility-Heavy Form</h1>
+  <p class="sub">Tests label[for], aria-label, aria-labelledby, aria-describedby, fieldset/legend, autocomplete</p>
+
+  <div class="info-bar">
+    🎤 Verifies that VoiceForm's label resolver correctly handles ARIA attributes and complex label associations
+  </div>
+
+  <div class="card">
+    <h2>Section 1 — Standard <code>label[for]</code> wiring</h2>
+    <form id="a11y-form-1" aria-label="Standard label-for form" novalidate>
+
+      <div class="form-group">
+        <label for="a11y-name">Full Name</label>
+        <input type="text" id="a11y-name" name="full_name" autocomplete="name" placeholder="Pratham Test">
+      </div>
+
+      <div class="form-group">
+        <label for="a11y-email">Email Address</label>
+        <input type="email" id="a11y-email" name="email" autocomplete="email" aria-required="true" placeholder="pratham.test@example.com">
+        <div class="field-description" id="email-hint">We'll never share your email with anyone.</div>
+      </div>
+
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Section 2 — <code>aria-label</code> (no visible label element)</h2>
+    <form id="a11y-form-2" aria-label="aria-label form" novalidate>
+
+      <div class="form-group">
+        <div class="hint">↓ No &lt;label&gt; element — uses aria-label only</div>
+        <input type="tel" id="a11y-phone" name="phone" autocomplete="tel"
+          aria-label="Phone Number" placeholder="5550101234">
+      </div>
+
+      <div class="form-group">
+        <div class="hint">↓ aria-label + aria-describedby</div>
+        <input type="text" id="a11y-city" name="city" autocomplete="address-level2"
+          aria-label="City" aria-describedby="city-desc" placeholder="Hubli">
+        <div class="field-description" id="city-desc">Your current city of residence</div>
+      </div>
+
+      <div class="form-group">
+        <div class="hint">↓ Select with aria-label</div>
+        <select id="a11y-country" name="country" aria-label="Country of residence" autocomplete="country">
+          <option value="">— Select country —</option>
+          <option value="IN">India</option>
+          <option value="US">United States</option>
+          <option value="GB">United Kingdom</option>
+        </select>
+      </div>
+
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Section 3 — <code>aria-labelledby</code></h2>
+    <form id="a11y-form-3" aria-labelledby="form3-title" novalidate>
+      <h3 id="form3-title" style="display:none">Employment Details Form</h3>
+
+      <div class="form-group">
+        <span id="company-label" style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Company Name</span>
+        <input type="text" id="a11y-company" name="company"
+          aria-labelledby="company-label" placeholder="Acme Corp">
+      </div>
+
+      <div class="form-group">
+        <span id="role-label" style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Job Title</span>
+        <span id="role-hint" style="display:block;font-size:11px;color:#6b7280;margin-bottom:6px;">Your current or most recent role</span>
+        <input type="text" id="a11y-role" name="job_title"
+          aria-labelledby="role-label" aria-describedby="role-hint" placeholder="Software Engineer">
+      </div>
+
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Section 4 — <code>fieldset</code> / <code>legend</code> + nested labels</h2>
+    <form id="a11y-form-4" aria-label="Nested label form" novalidate>
+
+      <fieldset>
+        <legend>Preferred Contact Method</legend>
+        <div class="radio-item">
+          <input type="radio" id="contact-email-radio" name="contact_pref" value="email">
+          <label for="contact-email-radio">Email</label>
+        </div>
+        <div class="radio-item">
+          <input type="radio" id="contact-phone-radio" name="contact_pref" value="phone">
+          <label for="contact-phone-radio">Phone</label>
+        </div>
+        <div class="radio-item">
+          <input type="radio" id="contact-sms-radio" name="contact_pref" value="sms">
+          <label for="contact-sms-radio">SMS / Text</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Agreement Options</legend>
+        <!-- Nested label: label wraps the input -->
+        <label class="nested-label">
+          <input type="checkbox" name="agree_newsletter" value="yes">
+          <span>Subscribe to newsletter</span>
+        </label>
+        <label class="nested-label">
+          <input type="checkbox" name="agree_updates" value="yes">
+          <span>Receive product updates</span>
+        </label>
+      </fieldset>
+
+      <div class="form-group">
+        <label for="a11y-dob">Date of Birth</label>
+        <input type="date" id="a11y-dob" name="date_of_birth"
+          autocomplete="bday" aria-describedby="dob-desc">
+        <div class="field-description" id="dob-desc">Required for age verification</div>
+      </div>
+
+      <button type="button" class="btn" onclick="handleA11ySubmit()">Submit (Test Only)</button>
+      <div id="a11y-result" style="display:none;margin-top:12px;color:#166534;font-size:13px;">
+        ✅ Accessibility form test complete.
+      </div>
+
+    </form>
+  </div>
+
+  <script>
+    function handleA11ySubmit() {
+      const forms = document.querySelectorAll('form');
+      const data = {};
+      forms.forEach(form => {
+        new FormData(form).forEach((v, k) => { data[k] = v; });
+      });
+      console.log('[M8-CAT-D] A11y form data:', JSON.stringify(data, null, 2));
+      document.getElementById('a11y-result').style.display = 'block';
+    }
+
+    window.__M8_CATEGORY__ = 'D';
+    window.__M8_EXPECTED_FIELDS__ = [
+      'full_name','email','phone','city','country',
+      'company','job_title','contact_pref','agree_newsletter','agree_updates','date_of_birth'
+    ];
+  </script>
+
+</body>
+</html>

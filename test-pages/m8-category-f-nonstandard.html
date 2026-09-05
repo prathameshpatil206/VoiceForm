@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M8 — Category F: Non-Standard Form</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fff7ed;
+      color: #1e293b;
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 40px 20px 100px;
+      line-height: 1.6;
+    }
+    .badge { display: inline-block; background: #dc2626; color: white; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; text-transform: uppercase; }
+    h1 { margin: 4px 0 4px; font-size: 24px; color: #0f172a; }
+    p.sub { color: #64748b; margin: 0 0 28px; font-size: 14px; }
+    .card { background: #fff; border: 1px solid #fed7aa; border-radius: 10px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 24px; }
+    .card h2 { margin: 0 0 6px; font-size: 17px; color: #dc2626; }
+    .card .limitation { font-size: 12px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; padding: 6px 10px; margin-bottom: 16px; }
+    label { font-size: 13px; font-weight: 600; color: #374151; }
+    input[type="text"], input[type="email"], input[type="tel"] {
+      padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+      font-size: 14px; background: #fafafa; box-sizing: border-box;
+    }
+    input:focus { outline: none; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.1); background: #fff; }
+    .btn { display: inline-block; background: #dc2626; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn:hover { background: #b91c1c; }
+
+    /* ── Section 1: Fields outside <form> ── */
+    .orphan-field-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .orphan-field-row label { min-width: 120px; }
+    .orphan-field-row input { flex: 1; }
+
+    /* ── Section 2: Unusual label placement (label after input) ── */
+    .reverse-label-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .reverse-label-row input { flex: 1; }
+    .reverse-label-row label { min-width: 120px; font-weight: 600; font-size: 13px; }
+
+    /* ── Section 3: Custom dropdown (div-based) ── */
+    .custom-dropdown { position: relative; display: inline-block; width: 100%; }
+    .custom-dropdown-trigger {
+      padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+      font-size: 14px; background: #fafafa; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .custom-dropdown-trigger:hover { border-color: #dc2626; }
+    .custom-dropdown-menu {
+      display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+      background: #fff; border: 1px solid #cbd5e1; border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 2px;
+    }
+    .custom-dropdown-menu.open { display: block; }
+    .custom-dropdown-option {
+      padding: 9px 14px; font-size: 14px; cursor: pointer;
+    }
+    .custom-dropdown-option:hover { background: #fef3c7; }
+    .custom-dropdown-option.selected { background: #fee2e2; font-weight: 600; }
+    /* Hidden real <select> for scanner detection */
+    .custom-dropdown select { display: none; }
+
+    /* ── Section 4: Label wrapping non-input content ── */
+    .complex-label-row { margin-bottom: 14px; }
+    .complex-label-row .field-wrapper { margin-top: 6px; }
+
+    .info-bar { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #92400e; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+
+  <div class="badge">M8 · Category F</div>
+  <h1>Non-Standard / Difficult Form</h1>
+  <p class="sub">Intentionally unusual patterns — documents limitations honestly</p>
+
+  <div class="info-bar">
+    ⚠️ This page tests edge cases. Some may result in PARTIAL or FAIL status — this is expected and documented.
+  </div>
+
+  <!-- ── Section 1: Orphan fields (outside <form>) ────────────────────── -->
+  <div class="card">
+    <h2>Section 1 — Fields Outside &lt;form&gt;</h2>
+    <div class="limitation">
+      ✅ VoiceForm supports orphan fields via the orphan-field scanner path (M1). Expected: PASS.
+    </div>
+
+    <!-- These are intentionally outside any <form> element -->
+    <div class="orphan-field-row">
+      <label for="orphan-name">Full Name</label>
+      <input type="text" id="orphan-name" name="full_name" autocomplete="name" placeholder="Pratham Test">
+    </div>
+    <div class="orphan-field-row">
+      <label for="orphan-email">Email</label>
+      <input type="email" id="orphan-email" name="email" autocomplete="email" placeholder="pratham.test@example.com">
+    </div>
+    <div class="orphan-field-row">
+      <label for="orphan-phone">Phone</label>
+      <input type="tel" id="orphan-phone" name="phone" autocomplete="tel" placeholder="5550101234">
+    </div>
+
+    <button type="button" class="btn" onclick="collectOrphan()">Collect (Test Only)</button>
+    <div id="orphan-result" style="display:none;margin-top:10px;font-size:13px;color:#166534;"></div>
+  </div>
+
+  <!-- ── Section 2: Label placed AFTER input (reverse order) ─────────── -->
+  <div class="card">
+    <h2>Section 2 — Label After Input</h2>
+    <div class="limitation">
+      ⚠️ Labels placed after inputs may not be resolved by proximity-based label detection.
+      VoiceForm uses <code>label[for]</code> → fallback → placeholder — label-after may degrade to placeholder.
+      Expected: PARTIAL.
+    </div>
+    <form id="reverse-label-form" novalidate>
+      <div class="reverse-label-row">
+        <input type="text" id="rl-city" name="city" autocomplete="address-level2" placeholder="Hubli">
+        <label for="rl-city">City</label>
+      </div>
+      <div class="reverse-label-row">
+        <input type="text" id="rl-state" name="state" autocomplete="address-level1" placeholder="Karnataka">
+        <label for="rl-state">State</label>
+      </div>
+      <div class="reverse-label-row">
+        <input type="text" id="rl-postal" name="postal_code" autocomplete="postal-code" placeholder="580001">
+        <label for="rl-postal">Postal Code</label>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Section 3: Custom div-based dropdown ─────────────────────────── -->
+  <div class="card">
+    <h2>Section 3 — Custom Div-Based Dropdown</h2>
+    <div class="limitation">
+      ⚠️ Custom div-based dropdowns are not native &lt;select&gt; elements. VoiceForm's M2 DOM filler
+      operates on native controls only. A hidden real &lt;select&gt; is included for scanner detection,
+      but the visual dropdown will not be filled by VoiceForm.
+      Expected: PARTIAL (scanner detects hidden select; visual dropdown not filled).
+    </div>
+    <form id="custom-dropdown-form" novalidate>
+      <div class="custom-dropdown" id="dept-dropdown" aria-label="Department selector">
+        <div class="custom-dropdown-trigger" onclick="toggleDropdown()" role="combobox" aria-haspopup="listbox">
+          <span id="dropdown-display">— Select department —</span>
+          <span>▾</span>
+        </div>
+        <div class="custom-dropdown-menu" id="dropdown-menu" role="listbox">
+          <div class="custom-dropdown-option" onclick="selectOption('engineering', 'Engineering')" role="option">Engineering</div>
+          <div class="custom-dropdown-option" onclick="selectOption('design', 'Design')" role="option">Design</div>
+          <div class="custom-dropdown-option" onclick="selectOption('marketing', 'Marketing')" role="option">Marketing</div>
+          <div class="custom-dropdown-option" onclick="selectOption('hr', 'Human Resources')" role="option">Human Resources</div>
+          <div class="custom-dropdown-option" onclick="selectOption('operations', 'Operations')" role="option">Operations</div>
+        </div>
+        <!-- Hidden real select for VoiceForm scanner detection -->
+        <select name="department" id="department-hidden" aria-label="Department" tabindex="-1" style="display:none">
+          <option value="">Select department</option>
+          <option value="engineering">Engineering</option>
+          <option value="design">Design</option>
+          <option value="marketing">Marketing</option>
+          <option value="hr">Human Resources</option>
+          <option value="operations">Operations</option>
+        </select>
+      </div>
+      <div id="selected-dept" style="margin-top:8px;font-size:12px;color:#6b7280;"></div>
+    </form>
+  </div>
+
+  <!-- ── Section 4: Complex label nesting ─────────────────────────────── -->
+  <div class="card">
+    <h2>Section 4 — Label Wrapping Block Content</h2>
+    <div class="limitation">
+      ✅ VoiceForm resolves wrapped-label cases via label ancestor traversal. Expected: PASS.
+    </div>
+    <form id="complex-label-form" novalidate>
+
+      <!-- Label wraps both the description and the input -->
+      <div class="complex-label-row">
+        <label style="display:block;cursor:pointer;">
+          <span style="font-weight:600;font-size:13px;color:#374151;display:block;margin-bottom:4px;">Job Title</span>
+          <span style="font-size:12px;color:#6b7280;display:block;margin-bottom:6px;">Your current or most recent position</span>
+          <div class="field-wrapper">
+            <input type="text" name="job_title" id="complex-role" placeholder="Software Engineer" style="width:100%;">
+          </div>
+        </label>
+      </div>
+
+      <!-- Label with icon inside -->
+      <div class="complex-label-row">
+        <label for="complex-company" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
+          <span>Company</span>
+        </label>
+        <input type="text" id="complex-company" name="company" placeholder="Acme Corp" style="width:100%;">
+      </div>
+
+    </form>
+  </div>
+
+  <script>
+    function collectOrphan() {
+      const data = {
+        full_name: document.getElementById('orphan-name').value,
+        email: document.getElementById('orphan-email').value,
+        phone: document.getElementById('orphan-phone').value,
+      };
+      console.log('[M8-CAT-F] Orphan fields:', JSON.stringify(data));
+      document.getElementById('orphan-result').style.display = 'block';
+      document.getElementById('orphan-result').textContent = `✅ Collected: ${JSON.stringify(data)}`;
+    }
+
+    function toggleDropdown() {
+      document.getElementById('dropdown-menu').classList.toggle('open');
+    }
+
+    function selectOption(value, label) {
+      document.getElementById('dropdown-display').textContent = label;
+      document.getElementById('department-hidden').value = value;
+      document.getElementById('dropdown-menu').classList.remove('open');
+      document.getElementById('selected-dept').textContent = `Selected: ${label} (value: "${value}")`;
+      document.querySelectorAll('.custom-dropdown-option').forEach(o => o.classList.remove('selected'));
+      event.target.classList.add('selected');
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!document.getElementById('dept-dropdown')?.contains(e.target)) {
+        document.getElementById('dropdown-menu')?.classList.remove('open');
+      }
+    });
+
+    window.__M8_CATEGORY__ = 'F';
+    window.__M8_EXPECTED_FIELDS__ = [
+      // Orphan fields
+      'full_name','email','phone',
+      // Reverse label (label[for] still wired)
+      'city','state','postal_code',
+      // Hidden select (custom dropdown)
+      'department',
+      // Complex label form
+      'job_title','company'
+    ];
+    window.__M8_KNOWN_LIMITATIONS__ = [
+      'Custom div-dropdown visual element cannot be filled by M2 DOM filler (hidden <select> is filled instead)',
+      'Label-after-input may degrade to placeholder resolution',
+    ];
+  </script>
+
+</body>
+</html>

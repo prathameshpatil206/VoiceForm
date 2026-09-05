@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M8 — Category A: Simple Form</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f4f8;
+      color: #1e293b;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 40px 20px 100px;
+      line-height: 1.6;
+    }
+    .badge {
+      display: inline-block;
+      background: #0ea5e9;
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    h1 { margin: 4px 0 4px; font-size: 24px; color: #0f172a; }
+    p.sub { color: #64748b; margin: 0 0 28px; font-size: 14px; }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 28px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .card h2 { margin: 0 0 20px; font-size: 17px; color: #0284c7; }
+    .form-row { display: flex; gap: 16px; }
+    .form-row .form-group { flex: 1; }
+    .form-group { margin-bottom: 18px; }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="url"],
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fafafa;
+      transition: border-color 0.15s;
+    }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2,132,199,0.12);
+      background: #fff;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .btn {
+      display: inline-block;
+      background: #0284c7;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .btn:hover { background: #0369a1; }
+    .result-box {
+      display: none;
+      margin-top: 16px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 6px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #166534;
+    }
+    .info-bar {
+      background: #fefce8;
+      border: 1px solid #fde68a;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #92400e;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="badge">M8 · Category A</div>
+  <h1>Simple Contact Form</h1>
+  <p class="sub">VoiceForm compatibility test — standard fields with label-for wiring</p>
+
+  <div class="info-bar">
+    🎤 <strong>Test profile:</strong> Speak naturally — "My name is Pratham Test, email is pratham.test@example.com, phone 5550101234, city Hubli"
+  </div>
+
+  <div class="card">
+    <h2>Personal Information</h2>
+
+    <form id="contact-form" action="#" method="post" novalidate>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="first-name">First Name</label>
+          <input
+            type="text"
+            id="first-name"
+            name="first_name"
+            autocomplete="given-name"
+            placeholder="e.g. Pratham"
+          >
+        </div>
+        <div class="form-group">
+          <label for="last-name">Last Name</label>
+          <input
+            type="text"
+            id="last-name"
+            name="last_name"
+            autocomplete="family-name"
+            placeholder="e.g. Test"
+          >
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="email">Email Address</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          autocomplete="email"
+          placeholder="you@example.com"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="phone">Phone Number</label>
+        <input
+          type="tel"
+          id="phone"
+          name="phone"
+          autocomplete="tel"
+          placeholder="+1 555 0101234"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="address">Street Address</label>
+        <input
+          type="text"
+          id="address"
+          name="address"
+          autocomplete="street-address"
+          placeholder="123 Test Street"
+        >
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="city">City</label>
+          <input
+            type="text"
+            id="city"
+            name="city"
+            autocomplete="address-level2"
+            placeholder="Hubli"
+          >
+        </div>
+        <div class="form-group">
+          <label for="state">State / Province</label>
+          <input
+            type="text"
+            id="state"
+            name="state"
+            autocomplete="address-level1"
+            placeholder="Karnataka"
+          >
+        </div>
+        <div class="form-group">
+          <label for="postal-code">Postal Code</label>
+          <input
+            type="text"
+            id="postal-code"
+            name="postal_code"
+            autocomplete="postal-code"
+            placeholder="580001"
+          >
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="website">Website (optional)</label>
+        <input
+          type="url"
+          id="website"
+          name="website"
+          autocomplete="url"
+          placeholder="https://example.com"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="message">Message</label>
+        <textarea
+          id="message"
+          name="message"
+          placeholder="Type your message here..."
+        ></textarea>
+      </div>
+
+      <button type="button" class="btn" onclick="handleSubmit()">Submit (Test Only)</button>
+
+      <div class="result-box" id="result-box">
+        ✅ Form submitted successfully (test mode — no data was actually sent).
+      </div>
+
+    </form>
+  </div>
+
+  <script>
+    function handleSubmit() {
+      const form = document.getElementById('contact-form');
+      const inputs = form.querySelectorAll('input, textarea');
+      const data = {};
+      inputs.forEach(inp => {
+        if (inp.name) data[inp.name] = inp.value;
+      });
+      console.log('[M8-CAT-A] Form data:', JSON.stringify(data, null, 2));
+      document.getElementById('result-box').style.display = 'block';
+    }
+
+    // Expose scan-result helper for headless tests
+    window.__M8_CATEGORY__ = 'A';
+    window.__M8_EXPECTED_FIELD_COUNT__ = 9; // first_name, last_name, email, phone, address, city, state, postal_code, website, message = 10 but button excluded
+    window.__M8_EXPECTED_FIELDS__ = [
+      'first_name','last_name','email','phone','address','city','state','postal_code','website','message'
+    ];
+  </script>
+
+</body>
+</html>

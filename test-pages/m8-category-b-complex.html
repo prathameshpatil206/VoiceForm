@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M8 — Category B: Complex Form</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f4f8;
+      color: #1e293b;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 20px 100px;
+      line-height: 1.6;
+    }
+    .badge { display: inline-block; background: #7c3aed; color: white; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; text-transform: uppercase; }
+    h1 { margin: 4px 0 4px; font-size: 24px; color: #0f172a; }
+    p.sub { color: #64748b; margin: 0 0 28px; font-size: 14px; }
+    .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 24px; }
+    .card h2 { margin: 0 0 20px; font-size: 17px; color: #7c3aed; }
+    .form-group { margin-bottom: 18px; }
+    .form-row { display: flex; gap: 16px; }
+    .form-row .form-group { flex: 1; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    input[type="text"], input[type="email"], input[type="tel"], input[type="number"],
+    input[type="date"], input[type="time"], input[type="datetime-local"],
+    select { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; background: #fafafa; }
+    input:focus, select:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.1); background: #fff; }
+    .radio-group, .checkbox-group { display: flex; flex-direction: column; gap: 10px; }
+    .radio-item, .checkbox-item { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+    .radio-item input, .checkbox-item input { width: auto; margin: 0; }
+    fieldset { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; }
+    legend { font-size: 13px; font-weight: 700; color: #374151; padding: 0 6px; }
+    .step-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+    .step-tab { padding: 8px 16px; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 13px; font-weight: 600; cursor: pointer; background: #f8fafc; color: #64748b; }
+    .step-tab.active { background: #7c3aed; color: white; border-color: #7c3aed; }
+    .step-panel { display: none; }
+    .step-panel.active { display: block; }
+    .btn { display: inline-block; background: #7c3aed; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer; margin-right: 8px; }
+    .btn-outline { background: transparent; border: 1px solid #7c3aed; color: #7c3aed; }
+    .btn:hover { opacity: 0.9; }
+    .info-bar { background: #fefce8; border: 1px solid #fde68a; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #92400e; margin-bottom: 20px; }
+    .progress-bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-bottom: 20px; }
+    .progress-fill { height: 100%; background: #7c3aed; border-radius: 2px; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+
+  <div class="badge">M8 · Category B</div>
+  <h1>Complex Registration Form</h1>
+  <p class="sub">Multi-step form with dropdowns, radio groups, checkboxes, date/time inputs</p>
+
+  <div class="info-bar">
+    🎤 Tests: dropdowns, radio groups, checkboxes, date inputs, multi-step navigation
+  </div>
+
+  <div class="card">
+    <div class="progress-bar"><div class="progress-fill" id="progress" style="width:33%"></div></div>
+    <div class="step-tabs">
+      <div class="step-tab active" onclick="goStep(1)">Step 1: Personal</div>
+      <div class="step-tab" onclick="goStep(2)">Step 2: Preferences</div>
+      <div class="step-tab" onclick="goStep(3)">Step 3: Confirm</div>
+    </div>
+
+    <form id="complex-form" novalidate>
+
+      <!-- ── STEP 1: Personal Info ──────────────────── -->
+      <div class="step-panel active" id="step-1">
+        <h2>Personal Information</h2>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="cb-first-name">First Name</label>
+            <input type="text" id="cb-first-name" name="first_name" autocomplete="given-name" placeholder="Pratham">
+          </div>
+          <div class="form-group">
+            <label for="cb-last-name">Last Name</label>
+            <input type="text" id="cb-last-name" name="last_name" autocomplete="family-name" placeholder="Test">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="cb-email">Email</label>
+          <input type="email" id="cb-email" name="email" autocomplete="email" placeholder="pratham.test@example.com">
+        </div>
+
+        <div class="form-group">
+          <label for="cb-dob">Date of Birth</label>
+          <input type="date" id="cb-dob" name="date_of_birth" autocomplete="bday">
+        </div>
+
+        <fieldset>
+          <legend>Gender</legend>
+          <div class="radio-group" role="group" aria-labelledby="gender-label">
+            <label class="radio-item">
+              <input type="radio" name="gender" value="male"> Male
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="gender" value="female"> Female
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="gender" value="nonbinary"> Non-binary
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="gender" value="prefer_not"> Prefer not to say
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="form-group">
+          <label for="cb-country">Country</label>
+          <select id="cb-country" name="country" autocomplete="country">
+            <option value="">— Select country —</option>
+            <option value="IN">India</option>
+            <option value="US">United States</option>
+            <option value="GB">United Kingdom</option>
+            <option value="AU">Australia</option>
+            <option value="CA">Canada</option>
+            <option value="DE">Germany</option>
+            <option value="FR">France</option>
+            <option value="JP">Japan</option>
+            <option value="SG">Singapore</option>
+          </select>
+        </div>
+
+        <button type="button" class="btn" onclick="goStep(2)">Next →</button>
+      </div>
+
+      <!-- ── STEP 2: Preferences ─────────────────── -->
+      <div class="step-panel" id="step-2">
+        <h2>Preferences & Schedule</h2>
+
+        <div class="form-group">
+          <label for="cb-role">Role / Occupation</label>
+          <select id="cb-role" name="job_title">
+            <option value="">— Select role —</option>
+            <option value="student">Student</option>
+            <option value="developer">Software Developer</option>
+            <option value="designer">Designer</option>
+            <option value="manager">Manager</option>
+            <option value="researcher">Researcher</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="cb-experience">Years of Experience</label>
+          <input type="number" id="cb-experience" name="experience_years" min="0" max="60" placeholder="0">
+        </div>
+
+        <div class="form-group">
+          <label for="cb-preferred-time">Preferred Contact Time</label>
+          <input type="time" id="cb-preferred-time" name="preferred_contact_time">
+        </div>
+
+        <div class="form-group">
+          <label for="cb-start-date">Available From</label>
+          <input type="datetime-local" id="cb-start-date" name="available_from">
+        </div>
+
+        <fieldset>
+          <legend>Interests (select all that apply)</legend>
+          <div class="checkbox-group">
+            <label class="checkbox-item">
+              <input type="checkbox" name="interests" value="ai_ml"> Artificial Intelligence / ML
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="interests" value="web_dev"> Web Development
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="interests" value="mobile"> Mobile Development
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="interests" value="data_science"> Data Science
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="interests" value="cloud"> Cloud / DevOps
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Newsletter Subscription</legend>
+          <div class="radio-group">
+            <label class="radio-item">
+              <input type="radio" name="newsletter" value="daily"> Daily digest
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="newsletter" value="weekly"> Weekly summary
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="newsletter" value="none" checked> No emails please
+            </label>
+          </div>
+        </fieldset>
+
+        <button type="button" class="btn btn-outline" onclick="goStep(1)">← Back</button>
+        <button type="button" class="btn" onclick="goStep(3)">Next →</button>
+      </div>
+
+      <!-- ── STEP 3: Confirm ─────────────────────── -->
+      <div class="step-panel" id="step-3">
+        <h2>Confirm &amp; Submit</h2>
+
+        <div class="form-group">
+          <label for="cb-comments">Additional Comments</label>
+          <textarea id="cb-comments" name="comments" rows="4" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;" placeholder="Anything else?"></textarea>
+        </div>
+
+        <fieldset>
+          <legend>Terms &amp; Agreements</legend>
+          <div class="checkbox-group">
+            <label class="checkbox-item">
+              <input type="checkbox" name="agree_terms" id="agree-terms" value="yes"> I agree to the Terms of Service
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="agree_privacy" id="agree-privacy" value="yes"> I have read the Privacy Policy
+            </label>
+          </div>
+        </fieldset>
+
+        <button type="button" class="btn btn-outline" onclick="goStep(2)">← Back</button>
+        <button type="button" class="btn" onclick="handleSubmit()">Submit (Test Only)</button>
+        <div id="submit-result" style="display:none;margin-top:12px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 14px;font-size:13px;">
+          ✅ Form submitted successfully (test mode).
+        </div>
+      </div>
+
+    </form>
+  </div>
+
+  <script>
+    let currentStep = 1;
+
+    function goStep(n) {
+      currentStep = n;
+      document.querySelectorAll('.step-panel').forEach((p, i) => {
+        p.classList.toggle('active', i + 1 === n);
+      });
+      document.querySelectorAll('.step-tab').forEach((t, i) => {
+        t.classList.toggle('active', i + 1 === n);
+      });
+      const pct = Math.round((n / 3) * 100);
+      document.getElementById('progress').style.width = pct + '%';
+    }
+
+    function handleSubmit() {
+      const form = document.getElementById('complex-form');
+      const data = {};
+      new FormData(form).forEach((v, k) => {
+        if (data[k]) {
+          data[k] = [].concat(data[k], v);
+        } else {
+          data[k] = v;
+        }
+      });
+      console.log('[M8-CAT-B] Form data:', JSON.stringify(data, null, 2));
+      document.getElementById('submit-result').style.display = 'block';
+    }
+
+    window.__M8_CATEGORY__ = 'B';
+    window.__M8_EXPECTED_FIELDS__ = [
+      'first_name','last_name','email','date_of_birth','gender',
+      'country','job_title','experience_years','preferred_contact_time',
+      'available_from','interests','newsletter','comments','agree_terms','agree_privacy'
+    ];
+  </script>
+
+</body>
+</html>

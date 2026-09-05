@@ -1,0 +1,14 @@
+{
+  "name": "voiceform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VoiceForm - Voice-native interface for web forms",
+  "workspaces": [
+    "extension"
+  ],
+  "scripts": {
+    "build:extension": "npm run --workspace=extension build",
+    "dev:extension": "npm run --workspace=extension dev"
+  }
+}

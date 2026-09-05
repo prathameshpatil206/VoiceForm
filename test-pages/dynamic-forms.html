@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceForm M1 Testbed - Dynamic Forms & Style Isolation</title>
+  
+  <!-- Host page styles designed to test T7 style isolation: aggressive styling that could leak into un-isolated UI -->
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px 100px;
+    }
+    h1 { color: #0369a1; }
+    .card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .btn-action {
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+    .btn-action:hover { background: #1d4ed8; }
+    .btn-danger { background: #dc2626; }
+    .btn-danger:hover { background: #b91c1c; }
+    .form-group { margin-bottom: 14px; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px; }
+    input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #94a3b8;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    .test-results {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 30px;
+    }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+  </style>
+
+  <!-- Aggressive host style override specifically for T7 verification (will not leak into Shadow DOM) -->
+  <style id="host-aggressive-style">
+    /* Host page has aggressive button and text styles */
+    .host-polluter {
+      color: #dc2626 !important;
+      font-style: italic !important;
+    }
+  </style>
+</head>
+<body>
+  <h1>Dynamic Forms & Shadow DOM Testbed (T6 & T7)</h1>
+  <p class="host-polluter">Fixture for verifying dynamic DOM mutation re-scanning (T6) and Shadow DOM styling isolation (T7).</p>
+
+  <div class="card">
+    <h2>Dynamic Multi-Step Form</h2>
+    <form id="dynamic-application-form">
+      <div class="form-group">
+        <label for="applicant-name">Applicant Name *</label>
+        <input type="text" id="applicant-name" name="applicantName" placeholder="Full legal name" required>
+      </div>
+      
+      <div id="dynamic-container">
+        <!-- Dynamically injected fields will appear here -->
+      </div>
+
+      <div style="margin-top: 20px;">
+        <button type="button" id="btn-add-phone" class="btn-action">+ Add Alternative Phone</button>
+        <button type="button" id="btn-add-step2" class="btn-action">+ Add Step 2 (Employment)</button>
+        <button type="button" id="btn-remove-last" class="btn-action btn-danger">- Remove Dynamic Field</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="test-results">
+    <h3>Automated Dynamic Tests (T6 & T7)</h3>
+    <button type="button" id="btn-run-tests" class="btn-action" style="background:#0284c7;">Run T6 & T7 Test Suite</button>
+    <div id="test-output" style="margin-top:14px;">Click the button or wait for auto-run...</div>
+  </div>
+
+  <!-- Content script bundle -->
+  <script src="../extension/dist/content.js"></script>
+
+  <script>
+    let phoneCounter = 0;
+    const container = document.getElementById('dynamic-container');
+
+    document.getElementById('btn-add-phone').addEventListener('click', () => {
+      phoneCounter++;
+      const div = document.createElement('div');
+      div.className = 'form-group dynamic-item';
+      div.innerHTML = `
+        <label for="alt-phone-${phoneCounter}">Alternative Phone #${phoneCounter}</label>
+        <input type="tel" id="alt-phone-${phoneCounter}" name="altPhone_${phoneCounter}" placeholder="+1 (555) 000-000${phoneCounter}">
+      `;
+      container.appendChild(div);
+    });
+
+    document.getElementById('btn-add-step2').addEventListener('click', () => {
+      if (document.getElementById('step2-fieldset')) return;
+      const fieldset = document.createElement('fieldset');
+      fieldset.id = 'step2-fieldset';
+      fieldset.className = 'dynamic-item';
+      fieldset.style.border = '1px solid #cbd5e1';
+      fieldset.style.borderRadius = '6px';
+      fieldset.style.padding = '16px';
+      fieldset.style.marginTop = '16px';
+      fieldset.innerHTML = `
+        <legend style="font-weight:600; color:#0284c7;">Step 2: Employment History</legend>
+        <div class="form-group">
+          <label for="current-employer">Current Employer</label>
+          <input type="text" id="current-employer" name="currentEmployer" placeholder="Company name">
+        </div>
+        <div class="form-group">
+          <label for="years-experience">Years of Experience</label>
+          <input type="number" id="years-experience" name="yearsExp" min="0" max="50">
+        </div>
+      `;
+      container.appendChild(fieldset);
+    });
+
+    document.getElementById('btn-remove-last').addEventListener('click', () => {
+      const items = container.querySelectorAll('.dynamic-item');
+      if (items.length > 0) {
+        items[items.length - 1].remove();
+      }
+    });
+
+    // Test runner
+    async function runDynamicTests() {
+      const out = document.getElementById('test-output');
+      out.innerHTML = 'Testing T6 (MutationObserver) and T7 (Shadow DOM Isolation)...';
+
+      const initialCount = window.__VOICEFORM_SCAN_RESULT__?.totalFieldCount || 0;
+
+      // 1. Trigger mutation by adding phone field
+      const mutateStart = performance.now();
+      document.getElementById('btn-add-phone').click();
+
+      // Wait for debounced mutation observer (debounce is 200ms)
+      await new Promise(r => setTimeout(r, 450));
+
+      const updatedScan = window.__VOICEFORM_SCAN_RESULT__;
+      const updatedCount = updatedScan?.totalFieldCount || 0;
+      const detectedLatency = window.__VOICEFORM_LAST_LATENCY_MS__ || (performance.now() - mutateStart);
+      const newlyAddedField = updatedScan?.forms[0]?.fields.find(f => f.name.startsWith('altPhone_'));
+
+      const t6Pass = updatedCount === initialCount + 1 &&
+                     newlyAddedField !== undefined &&
+                     newlyAddedField.label.startsWith('Alternative Phone');
+
+      // 2. Test T7 Shadow DOM Isolation
+      const host = document.querySelector('voiceform-debug-drawer');
+      const shadow = host?.shadowRoot;
+      const drawerBadge = shadow?.querySelector('.vf-badge');
+      const drawerTitle = shadow?.querySelector('.vf-title');
+
+      let t7Pass = false;
+      let t7Details = '';
+
+      if (host && shadow && drawerBadge && drawerTitle) {
+        const badgeStyle = window.getComputedStyle(drawerBadge);
+        // The drawer must have background: rgb(15, 23, 42) (#0f172a) and clean text color, NOT host body styles
+        const bg = badgeStyle.backgroundColor;
+        const font = badgeStyle.fontFamily;
+        t7Pass = bg.includes('15, 23, 42') && host.shadowRoot.mode === 'open';
+        t7Details = `ShadowRoot open: ${host.shadowRoot.mode === 'open'}, Badge BG: ${bg}, Font: ${font.slice(0, 25)}...`;
+      } else {
+        t7Details = 'ShadowRoot or debug drawer elements not found';
+      }
+
+      const results = [
+        {
+          id: 'T6',
+          name: 'MutationObserver Reaction & Dynamic Field Ingestion',
+          pass: t6Pass,
+          details: `Field count changed from ${initialCount} to ${updatedCount}. Detected dynamic field: "${newlyAddedField?.label}". Observed Latency: ${Math.round(detectedLatency)}ms (Target: < 300ms)`
+        },
+        {
+          id: 'T7',
+          name: 'Shadow DOM Style Isolation',
+          pass: t7Pass,
+          details: t7Details
+        }
+      ];
+
+      let html = '';
+      let allPass = true;
+      for (const r of results) {
+        if (!r.pass) allPass = false;
+        html += `<div><strong>[${r.id}] ${r.name}:</strong> <span class="${r.pass ? 'pass' : 'fail'}">${r.pass ? 'PASSED' : 'FAILED'}</span> - <small>${r.details}</small></div>`;
+      }
+
+      window.__VOICEFORM_DYNAMIC_TEST_RESULTS__ = { allPass, results };
+      out.innerHTML = html;
+    }
+
+    document.getElementById('btn-run-tests').addEventListener('click', runDynamicTests);
+
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(runDynamicTests, 400);
+    });
+  </script>
+</body>
+</html>
