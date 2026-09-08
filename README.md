@@ -46,38 +46,40 @@
 ```mermaid
 flowchart TD
     subgraph Browser ["Chrome Extension (Manifest V3)"]
-        DOM[DOM Scanner & Observer]
-        Mic[MicManager 16kHz PCM]
-        WebSpeech[Web Speech API Recognizer]
-        Drawer[Cyberpunk Glassmorphic Drawer]
-        Filler[Smart Field Autofiller & Dispatcher]
+        DOM["DOM Scanner & Observer"]
+        Mic["MicManager (16kHz PCM)"]
+        WebSpeech["Web Speech API Recognizer"]
+        Drawer["Cyberpunk Glassmorphic Drawer"]
+        Filler["Smart Field Autofiller & Dispatcher"]
     end
 
     subgraph Backend ["FastAPI WebSocket Server (:8765)"]
-        WS[WebSocket Protocol Gateway]
-        VAD[Silero VAD ONNX Engine]
-        Heuristic[Sub-ms Heuristic Extractor]
-        Ollama[Ollama Local LLM - Qwen 2.5]
-        Validator[Action & Schema Normalizer]
-        TTS[Rime TTS Streaming API]
-        Store[In-Memory / Redis Session Store]
+        WS["WebSocket Protocol Gateway"]
+        Store[("In-Memory / Redis Session Store")]
+        VAD["Silero VAD ONNX Engine"]
+        Ollama["Ollama Local LLM (Qwen 2.5)"]
+        Heuristic["Sub-ms Heuristic Extractor"]
+        Validator["Action & Schema Normalizer"]
+        TTS["Rime TTS Streaming API"]
     end
 
-    DOM -->|Scan Schema vf-f-*| WS
-    WebSpeech -->|Interim Streaming Transcripts| Drawer
-    WebSpeech -->|Final Transcript Frame| WS
-    Mic -->|Audio PCM Chunks| WS
-    WS -->|Barge-in Voice Detection| VAD
-    VAD -->|Interruption Signal| WS
-    WS -->|Text Prompt & Schema| Ollama
-    WS -.->|Zero-latency Fallback| Heuristic
-    Ollama -->|Structured Actions| Validator
-    Heuristic -->|Extracted Actions| Validator
-    Validator -->|ACTION_DISPATCH| Filler
-    Filler -->|Highlight & Dispatch Events| DOM
-    Validator -->|Conversational Text| TTS
-    TTS -->|Audio Chunks| Drawer
-    WS <--> Store
+    DOM -->|"Form Schema vf-f-*"| WS
+    Mic -->|"16kHz Audio Frames"| WS
+    WebSpeech -->|"Final Transcript Frame"| WS
+    WebSpeech -.->|"Streaming Interim Text"| Drawer
+
+    WS --> Store
+    WS -->|"Voice Activity Detection"| VAD
+    WS -->|"Prompt & Schema"| Ollama
+    WS -.->|"Zero-Latency Fallback"| Heuristic
+
+    Ollama -->|"Structured Actions"| Validator
+    Heuristic -->|"Extracted Actions"| Validator
+
+    Validator -->|"ACTION_DISPATCH"| Filler
+    Validator -->|"Conversational Text"| TTS
+    TTS -->|"Audio Chunks"| Drawer
+    VAD -.->|"Barge-in Interruption Signal"| Drawer
 ```
 
 ---
