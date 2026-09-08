@@ -15,6 +15,12 @@
 **Autonomous, Real-Time AI Voice Form Autofill Chrome Extension & Backend**  
 *Fill complex web forms hands-free in seconds using natural speech, local LLM slot extraction, sub-50ms VAD barge-in interruption, browser-native streaming interim transcription, and Rime TTS audio confirmation.*
 
+<br/>
+
+[![Demo Video](https://img.shields.io/badge/Demo%20Video-Google%20Drive-red?style=for-the-badge&logo=google-drive&logoColor=white)](https://drive.google.com/file/d/1e700CQAgJVkJiBGt57R__gWACEXapSt4/view?usp=sharing)
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/prathameshpatil206/VoiceForm)
+[![Rime Evidence](https://img.shields.io/badge/RIME-EVIDENCE.md-6366f1?style=for-the-badge&logo=markdown&logoColor=white)](RIME_EVIDENCE.md)
+
 </div>
 
 ---
@@ -191,6 +197,57 @@ Open any category in Chrome:
    - Dispatch genuine DOM `input` / `change` events.
    - Synthesize a natural conversational voice response confirming the filled slots.
 7. **Barge-in Support**: Speak anytime while Rime TTS is talking to immediately cut off audio and begin your next command!
+
+---
+
+## 🎙️ Exact Rime TTS Specifications
+
+VoiceForm integrates **Rime Text-to-Speech** for ultra-low latency conversational audio confirmation:
+
+| Specification Parameter | Value | Details & Implementation |
+| :--- | :--- | :--- |
+| **Model ID** | `mist` | High-fidelity, low-latency streaming conversational voice model |
+| **Speaker** | `marsh` *(fallback: `amber`)* | Natural conversational tone and pacing |
+| **Language** | `en` / `en-US` | English |
+| **Endpoint URL** | `https://users.rime.ai/v1/rime-tts` | Production Rime TTS HTTP endpoint |
+| **Audio Format** | `pcm` | Linear 16-bit PCM mono, 16,000 Hz sample rate |
+| **Transport** | HTTP Streaming (`POST`) | Chunked transfer encoding via `httpx.AsyncClient.stream()` for sub-250ms time-to-first-audio (TTFA) |
+
+> 📖 **Rime Evidence Document**: For the formal hard voice claim, acceptance tests, procedure, and quantitative measurements, see [**`RIME_EVIDENCE.md`**](RIME_EVIDENCE.md).  
+> 🎥 **Demo Video Recording**: [**Watch VoiceForm Demo (Google Drive)**](https://drive.google.com/file/d/1e700CQAgJVkJiBGt57R__gWACEXapSt4/view?usp=sharing) *(breakdown & criteria mapped in [**`DEMO_LINK.md`**](DEMO_LINK.md))*.
+
+---
+
+## 🔌 Third-Party Services & Dependencies
+
+| Service / Dependency | Role in VoiceForm | Execution Mode / Endpoint | Data Privacy & Network Boundaries |
+| :--- | :--- | :--- | :--- |
+| **Rime TTS API** | Conversational voice synthesis | Cloud HTTP Streaming (`https://users.rime.ai/v1/rime-tts`) | Spoken response text sent to Rime; binary audio chunks streamed back. |
+| **Ollama (Qwen 2.5 1.5B)** | Semantic slot extraction & reasoning | Local (`http://localhost:11434`) | 100% on-device local execution; zero prompt or voice data leaves machine. |
+| **Web Speech API** | Real-time streaming interim ASR | Browser-native (Chrome engine) | Low-latency local browser event stream with zero server overhead. |
+| **Silero VAD ONNX** | Sub-50ms barge-in voice detection | Local CPU ONNX (`backend/app/ai/vad`) | In-memory 16kHz PCM audio frame evaluation; zero external network calls. |
+| **PostgreSQL & Redis** *(Optional)* | Encrypted profile & session store | Local Docker containers | Local persistence with AES-256 encryption at rest; sensitive fields masked. |
+
+---
+
+## ⚠️ Known Limitations
+
+1. **Cross-Origin Iframes**: Chrome Manifest V3 security policies prevent extension content scripts from reading or manipulating DOM inputs inside cross-origin `<iframe>` elements without per-site permissions.
+2. **CAPTCHA & Bot Defenses**: VoiceForm intentionally avoids interacting with Cloudflare turnstiles, reCAPTCHAs, and bot verification puzzles to preserve website security controls.
+3. **Canvas-Rendered Inputs**: Custom UI widgets rendered directly to an HTML5 `<canvas>` (without standard DOM `<input>` or ARIA roles) cannot be traversed by the DOM scanner.
+4. **Microphone Permissions**: Browser requires explicit user microphone permission on initial launch.
+5. **Acoustic Feedback Without Headsets**: In environments with external speakers turned up loud without hardware echo cancellation, loud TTS playback may trigger VAD thresholding; using headphones or Chrome AEC prevents this.
+
+---
+
+## 🛡️ Failure Behavior & Resiliency
+
+VoiceForm features multi-tiered graceful degradation so that user form filling is never blocked or corrupted:
+
+1. **LLM Downtime or Latency Spike**: If Ollama is offline or times out (>1500ms), the **Sub-Millisecond Heuristic Extractor** immediately parses the transcript using compiled regex patterns for names, emails, and phone numbers, completing the fill with <1ms overhead.
+2. **Rime TTS Network Disconnect / Quota Exceeded**: If the Rime API returns a 4xx/5xx or times out, the backend logs the error and sends a client-side warning toast. Form autofill remains 100% completed so the user's workflow is never interrupted.
+3. **Mid-Speech Barge-in Interruption**: If the user speaks while Rime audio is playing, Silero VAD fires within ~35ms, immediately incrementing the generation ID, aborting the in-flight HTTP stream via `asyncio.Event`, and sending an `AUDIO_INTERRUPT` frame to wipe the client audio playback buffer.
+4. **Unmatched / Hallucinated Fields**: The Action Validator cross-references every proposed slot against the active `PageScanResult` schema. Any hallucinated fields or forbidden values (passwords, credit cards) are rejected and pruned.
 
 ---
 

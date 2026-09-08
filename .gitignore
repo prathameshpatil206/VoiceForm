@@ -45,6 +45,8 @@ package-lock.json
 # Build artifacts
 extension/dist/
 dist/
+*.zip
+_staging_submission/
 
 # Test / coverage
 .pytest_cache/
