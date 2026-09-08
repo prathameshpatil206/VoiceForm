@@ -168,3 +168,109 @@ def build_conversational_response(
         return f"{base} What's your {next_req}?"
 
     return base
+
+
+def heuristic_extract_actions(transcript: str, schema: PageScanResult) -> List[Dict[str, Any]]:
+    """
+    Sub-millisecond heuristic safety net. Extracts common form slots (first name,
+    last name, full name, email, phone, etc.) directly from spoken speech patterns
+    if the LLM fails or produces zero actions.
+    """
+    import re
+    actions: List[Dict[str, Any]] = []
+    if not transcript or not transcript.strip():
+        return actions
+
+    text = transcript.strip()
+
+    # Collect all candidate fields
+    all_fields = [f for form in schema.forms for f in form.fields] + list(schema.orphanFields)
+
+    # 1. Email extraction
+    email_match = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", text)
+    if not email_match:
+        # Common spoken forms: "alex dot morgan at example dot com"
+        spoken_email = re.search(
+            r"([a-zA-Z0-9_.-]+)\s*(?:@|at)\s*([a-zA-Z0-9_.-]+)\s*(?:\.|\bdot\b)\s*([a-zA-Z]{2,6})",
+            text,
+            re.IGNORECASE
+        )
+        if spoken_email:
+            email_val = f"{spoken_email.group(1)}@{spoken_email.group(2)}.{spoken_email.group(3)}".replace(" ", "").lower()
+            email_match = True
+        else:
+            email_val = None
+    else:
+        email_val = email_match.group(1)
+
+    if email_val:
+        for f in all_fields:
+            if f.type == "email" or any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["email", "mail"]):
+                actions.append({"action": "fill_field", "field_id": f.id, "value": email_val})
+                break
+
+    # 2. Phone extraction
+    phone_match = re.search(r"(?:phone|mobile|tel|contact)?(?:(?:\s+is|\s*:|\s+number\s+is)?\s*)([0-9\+\(\)\-\s]{7,15})", text, re.IGNORECASE)
+    if phone_match:
+        digits_only = re.sub(r"[^\d+]", "", phone_match.group(1))
+        if len(digits_only) >= 7:
+            for f in all_fields:
+                if f.type == "tel" or any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["phone", "mobile", "tel"]):
+                    actions.append({"action": "fill_field", "field_id": f.id, "value": phone_match.group(1).strip()})
+                    break
+
+    # 3. First Name / Last Name / Full Name
+    # "My first name is X" or "first name is X"
+    first_name_match = re.search(r"(?:my\s+)?first\s+name\s+(?:is\s+)?([A-Za-z]+)", text, re.IGNORECASE)
+    # "My last name is Y" or "last name is Y"
+    last_name_match = re.search(r"(?:my\s+)?last\s+name\s+(?:is\s+)?([A-Za-z]+)", text, re.IGNORECASE)
+
+    if first_name_match:
+        fn_val = first_name_match.group(1).strip().capitalize()
+        for f in all_fields:
+            if any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["first", "fname", "firstname"]):
+                actions.append({"action": "fill_field", "field_id": f.id, "value": fn_val})
+                break
+
+    if last_name_match:
+        ln_val = last_name_match.group(1).strip().capitalize()
+        for f in all_fields:
+            if any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["last", "lname", "lastname", "surname"]):
+                actions.append({"action": "fill_field", "field_id": f.id, "value": ln_val})
+                break
+
+    # "My name is X Y" or "I am X Y"
+    if not first_name_match:
+        full_name_match = re.search(r"(?:my\s+name\s+is|i\s+am|this\s+is)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)", text, re.IGNORECASE)
+        if full_name_match:
+            raw_name = full_name_match.group(1).strip()
+            name_parts = raw_name.split()
+            if len(name_parts) >= 2:
+                # Check if there are separate first & last name fields
+                fn_field = next((f for f in all_fields if any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["first", "fname", "firstname"])), None)
+                ln_field = next((f for f in all_fields if any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["last", "lname", "lastname", "surname"])), None)
+                full_field = next((f for f in all_fields if any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["fullname", "name"]) and f != fn_field and f != ln_field), None)
+
+                if fn_field and ln_field:
+                    actions.append({"action": "fill_field", "field_id": fn_field.id, "value": name_parts[0].capitalize()})
+                    actions.append({"action": "fill_field", "field_id": ln_field.id, "value": " ".join(name_parts[1:]).capitalize()})
+                elif full_field:
+                    actions.append({"action": "fill_field", "field_id": full_field.id, "value": " ".join([p.capitalize() for p in name_parts])})
+                elif fn_field:
+                    actions.append({"action": "fill_field", "field_id": fn_field.id, "value": name_parts[0].capitalize()})
+            elif len(name_parts) == 1:
+                # Single name
+                fn_field = next((f for f in all_fields if any(k in f.id.lower() or k in (f.name or "").lower() or k in f.label.lower() for k in ["first", "name", "fname"])), None)
+                if fn_field:
+                    actions.append({"action": "fill_field", "field_id": fn_field.id, "value": name_parts[0].capitalize()})
+
+    # Deduplicate actions by field_id
+    seen_ids = set()
+    deduped = []
+    for a in actions:
+        if a["field_id"] not in seen_ids:
+            seen_ids.add(a["field_id"])
+            deduped.append(a)
+
+    return deduped
+

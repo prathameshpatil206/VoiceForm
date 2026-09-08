@@ -308,6 +308,10 @@ export class VoiceFormWebSocketClient {
     return this.send('AUDIO', { audio_base64: base64Wav, duration_ms: durationMs, generation_id: generationId ?? this.activeGenerationId }, generationId);
   }
 
+  public sendTranscript(text: string, isFinal = true, generationId?: number): boolean {
+    return this.send('TRANSCRIPT', { text, is_final: isFinal, generation_id: generationId ?? this.activeGenerationId }, generationId);
+  }
+
   public sendTtsRequest(text: string, speaker?: string, generationId?: number): boolean {
     return this.send('TTS_REQUEST', { text, speaker, generation_id: generationId }, generationId);
   }

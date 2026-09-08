@@ -17,7 +17,7 @@ class AppConfig(BaseModel):
     LLM_TIMEOUT: float = float(os.getenv("LLM_TIMEOUT", "60.0"))
     ASR_MODEL: str = os.getenv("ASR_MODEL", "Qwen/Qwen3-ASR-0.6B")
     VAD_THRESHOLD: float = float(os.getenv("VAD_THRESHOLD", "0.5"))
-    VAD_SILENCE_DURATION_MS: int = int(os.getenv("VAD_SILENCE_DURATION_MS", "800"))
+    VAD_SILENCE_DURATION_MS: int = int(os.getenv("VAD_SILENCE_DURATION_MS", "550"))
     AUDIO_SAMPLE_RATE: int = 16000
 
     # Milestone 5: Rime TTS Configuration
@@ -35,7 +35,7 @@ class AppConfig(BaseModel):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
     REDIS_TTL_SECONDS: int = int(os.getenv("REDIS_TTL_SECONDS", "3600"))
     PROFILE_CONFIDENCE_THRESHOLD: float = float(os.getenv("PROFILE_CONFIDENCE_THRESHOLD", "0.75"))
-    ENABLE_PROFILE_PERSISTENCE: bool = os.getenv("ENABLE_PROFILE_PERSISTENCE", "true").lower() in ("true", "1", "yes")
+    ENABLE_PROFILE_PERSISTENCE: bool = os.getenv("ENABLE_PROFILE_PERSISTENCE", "false").lower() in ("true", "1", "yes")
     DEFAULT_PROFILE_ID: str = os.getenv("DEFAULT_PROFILE_ID", "default_user")
 
 config = AppConfig()

@@ -194,3 +194,41 @@ def test_t9_multiple_independent_sessions():
 
         assert resp_a["session_id"] == "session_alpha"
         assert resp_b["session_id"] == "session_beta"
+
+def test_t10_direct_transcript_message():
+    """T10: Verifies direct TRANSCRIPT message triggers text pipeline and echoes transcript."""
+    with client.websocket_connect("/ws/test_transcript_10") as ws:
+        # 1. Initialize session
+        ws.send_text(json.dumps({
+            "version": 1,
+            "type": "CLIENT_HELLO",
+            "session_id": "test_transcript_10",
+            "payload": {}
+        }))
+        ws.receive_text()
+
+        # 2. Send direct TRANSCRIPT message
+        ws.send_text(json.dumps({
+            "version": 1,
+            "type": "TRANSCRIPT",
+            "session_id": "test_transcript_10",
+            "payload": {
+                "text": "Hello world my name is Alice",
+                "is_final": True
+            }
+        }))
+
+        # Expect echoed TRANSCRIPT
+        raw_transcript = ws.receive_text()
+        transcript = json.loads(raw_transcript)
+        assert transcript["version"] == 1
+        assert transcript["type"] == "TRANSCRIPT"
+        assert transcript["payload"]["text"] == "Hello world my name is Alice"
+        assert transcript["payload"]["is_final"] is True
+
+        # Expect AI_ERROR (NO_FORM_SCHEMA because no schema was sent)
+        raw_err = ws.receive_text()
+        err = json.loads(raw_err)
+        assert err["version"] == 1
+        assert err["type"] == "AI_ERROR"
+        assert err["payload"]["error_code"] == "NO_FORM_SCHEMA"

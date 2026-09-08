@@ -1,5 +1,6 @@
 import { PageScanResult } from '../types/schema';
 import { MicrophoneManager } from './audio/mic-manager';
+import { SpeechRecognizer } from './audio/speech-recognizer';
 import { AudioStreamPlayer } from './audio/stream-player';
 import { VoiceFormDebugDrawer } from './debug-ui/debug-drawer';
 import { executeFillAction, executeFillActions } from './filler/dom-filler';
@@ -21,6 +22,7 @@ let debugDrawer: VoiceFormDebugDrawer | null = null;
 let mutationWatcher: FormMutationWatcher | null = null;
 let wsClient: VoiceFormWebSocketClient | null = null;
 let micManager: MicrophoneManager | null = null;
+let speechRecognizer: SpeechRecognizer | null = null;
 let audioPlayer: AudioStreamPlayer | null = null;
 const interruptionHistory: InterruptionRecord[] = [];
 
@@ -51,24 +53,86 @@ export function fillFields(actions: FormAction[]): FillResult[] {
   return results;
 }
 
-export async function toggleVoice(): Promise<void> {
+export async function startVoice(): Promise<void> {
   if (!micManager) return;
-  if (micManager.getIsRecording()) {
-    micManager.stopListening();
-    debugDrawer?.setVoiceState('idle');
+
+  // If assistant is currently speaking, stop speech first
+  if (audioPlayer && audioPlayer.isPlaying()) {
+    stopPlayback('start_voice');
+  }
+
+  // Clear previous outputs & state
+  debugDrawer?.setTranscript('');
+  debugDrawer?.clearLiveTranscript();
+  debugDrawer?.setExtractedActions([]);
+  debugDrawer?.setAiError('');
+  debugDrawer?.setAskUser('');
+
+  // Pre-warm audio player to activate the output device before TTS response arrives
+  audioPlayer?.prewarm().catch(() => {});
+
+  // Start Gemini-style browser-native speech recognition
+  speechRecognizer?.start();
+
+  const started = await micManager.startListening();
+  if (started) {
+    debugDrawer?.setVoiceState('listening');
   } else {
-    // If currently speaking, stop speech first
-    if (audioPlayer && audioPlayer.isPlaying()) {
-      stopPlayback('toggle_voice');
+    speechRecognizer?.abort();
+  }
+}
+
+export async function stopAndProcess(): Promise<void> {
+  if (!micManager) return;
+
+  // Stop speech recognizer and get accumulated transcript
+  const finalTranscript = speechRecognizer?.stop() || '';
+
+  // Stop microphone with discard = false so 16kHz WAV is produced and emitted
+  micManager.stopListening(false);
+
+  // If we have recognized transcript, update UI and send to backend immediately
+  if (finalTranscript.trim()) {
+    debugDrawer?.setTranscript(finalTranscript);
+    if (wsClient && wsClient.getStatus() === 'CONNECTED') {
+      wsClient.sendTranscript(finalTranscript);
     }
-    debugDrawer?.setTranscript('');
-    debugDrawer?.setExtractedActions([]);
-    debugDrawer?.setAiError('');
-    debugDrawer?.setAskUser('');
-    const started = await micManager.startListening();
-    if (started) {
-      debugDrawer?.setVoiceState('listening');
-    }
+  }
+
+  debugDrawer?.setVoiceState('processing');
+}
+
+export async function cancelVoice(): Promise<void> {
+  // Abort speech recognition without emitting transcript
+  speechRecognizer?.abort();
+
+  // Discard microphone audio completely
+  if (micManager?.getIsRecording()) {
+    micManager.stopListening(true);
+  }
+
+  // Halt audio playback if playing
+  if (audioPlayer && audioPlayer.isPlaying()) {
+    stopPlayback('user_cancelled');
+  }
+
+  // Interrupt backend if turn was active
+  if (wsClient && wsClient.getStatus() === 'CONNECTED') {
+    const activeGen = wsClient.getActiveGenerationId() || 0;
+    wsClient.sendInterrupt(activeGen, 'user_cancelled');
+  }
+
+  debugDrawer?.clearLiveTranscript();
+  debugDrawer?.setVoiceState('idle');
+}
+
+export async function toggleVoice(): Promise<void> {
+  if (micManager?.getIsRecording()) {
+    await stopAndProcess();
+  } else if (audioPlayer?.isPlaying()) {
+    stopPlayback('toggle_voice');
+  } else {
+    await startVoice();
   }
 }
 
@@ -119,21 +183,31 @@ function init(): void {
   // Initial Scan
   performScan();
 
-  // Initialize UI Drawer with rescan, sample fill, voice toggle, and stop audio handlers
-  debugDrawer = new VoiceFormDebugDrawer(
-    () => {
-      performScan();
+  // Initialize Speech Recognizer (Gemini-style streaming interim recognition)
+  speechRecognizer = new SpeechRecognizer({
+    onInterimTranscript: (interimText) => {
+      debugDrawer?.setLiveTranscript(interimText);
     },
-    (action) => {
-      return fillField(action);
+    onFinalTranscript: (finalText) => {
+      debugDrawer?.setTranscript(finalText);
+      if (wsClient && wsClient.getStatus() === 'CONNECTED') {
+        wsClient.sendTranscript(finalText);
+      }
     },
-    () => {
-      toggleVoice();
-    },
-    () => {
-      stopPlayback('manual_button_click');
+    onError: (err) => {
+      console.warn('[VoiceForm Content] Speech recognition error:', err);
     }
-  );
+  });
+
+  // Initialize UI Drawer with dedicated Start, Stop & Fill, Cancel, and Stop Audio handlers
+  debugDrawer = new VoiceFormDebugDrawer({
+    onRescan: () => performScan(),
+    onFill: (action) => fillField(action),
+    onStartVoice: () => startVoice(),
+    onStopAndProcess: () => stopAndProcess(),
+    onCancelVoice: () => cancelVoice(),
+    onStopPlayback: () => stopPlayback('manual_button_click')
+  });
 
   // Initialize Audio Stream Player (M5 + M6)
   audioPlayer = new AudioStreamPlayer({
@@ -295,6 +369,10 @@ function init(): void {
   (window as any).__VOICEFORM_FILL_FIELDS__ = fillFields;
   (window as any).__VOICEFORM_WS_CLIENT__ = wsClient;
   (window as any).__VOICEFORM_MIC_MANAGER__ = micManager;
+  (window as any).__VOICEFORM_SPEECH_RECOGNIZER__ = speechRecognizer;
+  (window as any).__VOICEFORM_START_VOICE__ = startVoice;
+  (window as any).__VOICEFORM_STOP_AND_PROCESS__ = stopAndProcess;
+  (window as any).__VOICEFORM_CANCEL_VOICE__ = cancelVoice;
   (window as any).__VOICEFORM_AUDIO_PLAYER__ = audioPlayer;
   (window as any).__VOICEFORM_STOP_PLAYBACK__ = stopPlayback;
   (window as any).__VOICEFORM_TOGGLE_VOICE__ = toggleVoice;

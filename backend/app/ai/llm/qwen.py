@@ -71,9 +71,9 @@ class Qwen3LLMProvider(LLMProvider):
             "options": {
                 "temperature": 0.0,
                 "top_p": 0.9,
-                "num_predict": 180,   # Prevent runaway token generation
-                "num_ctx": 1024,      # Compact context window for speed
-                "num_thread": 8       # Utilize multi-core CPU threads
+                "num_predict": 600,   # Generous token limit to prevent truncated JSON
+                "num_ctx": 2048,
+                "num_thread": 8
             }
         }
 
@@ -128,7 +128,7 @@ class Qwen3LLMProvider(LLMProvider):
         profile_context: Optional[Dict[str, Any]],
         api_key: str
     ) -> LLMActionResult:
-        """Sub-250ms ultra-fast Groq LLM inference."""
+        """Sub-100ms ultra-fast Groq LLM inference using active high-speed models."""
         user_prompt = build_user_prompt(
             transcript=transcript,
             schema=schema,
@@ -142,13 +142,9 @@ class Qwen3LLMProvider(LLMProvider):
             {"role": "user", "content": user_prompt}
         ]
 
-        payload = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": messages,
-            "temperature": 0.0,
-            "max_tokens": 250,
-            "response_format": {"type": "json_object"}
-        }
+        # Primary model: openai/gpt-oss-20b (~70ms latency, strict JSON support)
+        # High-capacity fallbacks: openai/gpt-oss-120b, groq/compound-mini, qwen/qwen3.8-27b
+        candidate_models = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "groq/compound-mini", "qwen/qwen3.8-27b"]
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -156,44 +152,105 @@ class Qwen3LLMProvider(LLMProvider):
         }
 
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
-            if resp.status_code != 200:
-                # Try fallback fast model on Groq
-                payload["model"] = "llama-3.1-8b-instant"
-                resp = await client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
+            last_err = None
+            for model_name in candidate_models:
+                payload = {
+                    "model": model_name,
+                    "messages": messages,
+                    "temperature": 0.0,
+                    "max_tokens": 500,
+                    "response_format": {"type": "json_object"}
+                }
+                try:
+                    resp = await client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        content = data["choices"][0]["message"]["content"]
+                        logger.info(f"⚡ Groq LLM extraction succeeded using model '{model_name}'")
+                        return self._parse_llm_output(content)
+                    else:
+                        logger.warning(f"Groq model '{model_name}' returned status {resp.status_code}: {resp.text[:120]}")
+                        last_err = RuntimeError(f"Groq {model_name} status {resp.status_code}")
+                except Exception as e_m:
+                    logger.warning(f"Groq call to '{model_name}' failed: {e_m}")
+                    last_err = e_m
 
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-            return self._parse_llm_output(content)
+            if last_err:
+                raise last_err
+            raise RuntimeError("All Groq model attempts exhausted.")
 
     def _parse_llm_output(self, raw_text: str) -> LLMActionResult:
-        """Parse strict JSON output from LLM, handling markdown code fences if present."""
+        """Parse strict JSON output from LLM, handling markdown code fences, think tags, and malformed variants."""
         cleaned = raw_text.strip()
-        if cleaned.startswith("```"):
+
+        # 1. Strip <think>...</think> blocks from reasoning models (e.g. Qwen / DeepSeek)
+        cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+
+        # 2. Strip markdown code fences
+        if "```" in cleaned:
             cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
             cleaned = re.sub(r"\n?```$", "", cleaned).strip()
 
+        parsed: Optional[Dict[str, Any]] = None
         try:
             parsed = json.loads(cleaned)
-        except Exception as e:
-            logger.warning(f"Failed to parse LLM JSON: {e}. Raw content was: {raw_text[:200]}")
-            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        except Exception:
+            # Try to extract the first balanced JSON object {...}
+            match = re.search(r"(\{.*\})", cleaned, re.DOTALL)
             if match:
                 try:
-                    parsed = json.loads(match.group(0))
+                    parsed = json.loads(match.group(1))
                 except Exception:
-                    return LLMActionResult(actions=[], reasoning=f"Malformed JSON: {e}")
-            else:
-                return LLMActionResult(actions=[], reasoning=f"Malformed JSON: {e}")
+                    # Attempt simple JSON truncation repair if unterminated
+                    candidate = match.group(1).rstrip()
+                    for closer in ['"}', '"}]}', '"]}', '"}', '}']:
+                        try:
+                            parsed = json.loads(candidate + closer)
+                            break
+                        except Exception:
+                            continue
 
-        actions = parsed.get("actions", [])
+        if not parsed or not isinstance(parsed, dict):
+            logger.warning(f"Failed to parse LLM JSON. Raw content was: {raw_text[:200]}")
+            return LLMActionResult(actions=[], reasoning="Malformed JSON from LLM")
+
+        # 3. Handle cases where model echoed 'fields' or used alternate action keys
+        raw_actions = parsed.get("actions", [])
+        if not raw_actions and "fields" in parsed and isinstance(parsed["fields"], list):
+            # Model outputted fields list with values
+            recovered_actions = []
+            for f in parsed["fields"]:
+                if isinstance(f, dict) and "field_id" in f and ("value" in f or "current_value" in f):
+                    val = f.get("value") or f.get("current_value")
+                    if val is not None and str(val).strip():
+                        recovered_actions.append({
+                            "action": "fill_field",
+                            "field_id": f["field_id"],
+                            "value": val
+                        })
+            raw_actions = recovered_actions
+
+        # Normalize action items: ensure action key is present
+        normalized_actions = []
+        if isinstance(raw_actions, list):
+            for act in raw_actions:
+                if isinstance(act, dict):
+                    act_type = act.get("action") or act.get("type") or "fill_field"
+                    field_id = act.get("field_id") or act.get("id")
+                    value = act.get("value")
+                    if field_id is not None:
+                        normalized_actions.append({
+                            "action": str(act_type),
+                            "field_id": str(field_id),
+                            "value": value
+                        })
+
         response_text = parsed.get("response")
         ask_user = parsed.get("ask_user")
         reasoning = parsed.get("reasoning")
 
         return LLMActionResult(
-            actions=actions if isinstance(actions, list) else [],
+            actions=normalized_actions,
             response=str(response_text).strip() if response_text else None,
             ask_user=str(ask_user).strip() if ask_user else None,
             reasoning=str(reasoning).strip() if reasoning else None

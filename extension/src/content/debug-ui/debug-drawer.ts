@@ -1,18 +1,32 @@
 import { FormField, PageScanResult } from '../../types/schema';
 import { FormAction, FillResult } from '../filler/types';
 
+export interface DrawerActionCallbacks {
+  onRescan?: () => void;
+  onFill?: (action: FormAction) => FillResult;
+  onStartVoice?: () => void;
+  onStopAndProcess?: () => void;
+  onCancelVoice?: () => void;
+  onStopPlayback?: () => void;
+}
+
 export class VoiceFormDebugDrawer {
   private host: HTMLElement | null = null;
   private shadow: ShadowRoot | null = null;
   private isOpen = false;
   private currentResult: PageScanResult | null = null;
   private lastLatencyMs: number | null = null;
-  private onRescanRequested: () => void;
-  private onFillRequested?: (action: FormAction) => FillResult;
-  private onVoiceToggleRequested?: () => void;
   private highlightedElement: HTMLElement | null = null;
   private wsStatus: string = 'DISCONNECTED';
   private wsSessionId?: string;
+
+  // Callbacks
+  private onRescanRequested?: () => void;
+  private onFillRequested?: (action: FormAction) => FillResult;
+  private onStartVoiceRequested?: () => void;
+  private onStopAndProcessRequested?: () => void;
+  private onCancelVoiceRequested?: () => void;
+  private onStopPlaybackRequested?: () => void;
 
   // Voice, AI, TTS & Interruption State
   private voiceStatus: 'idle' | 'listening' | 'processing' | 'filling' | 'speaking' | 'interrupted' | 'error' = 'idle';
@@ -25,18 +39,50 @@ export class VoiceFormDebugDrawer {
   private currentGenerationId = 0;
   private lastInterruptionLatencyMs: number | null = null;
   private interruptionCount = 0;
-  private onStopPlaybackRequested?: () => void;
+
+  // Cached DOM elements
+  private bottomVoiceBtn: HTMLElement | null = null;
+  private bottomVoiceIcon: HTMLElement | null = null;
+  private bottomVoiceText: HTMLElement | null = null;
+  private bottomCancelBtn: HTMLElement | null = null;
+  private bottomLiveChipEl: HTMLElement | null = null;
+  private bottomLiveTextEl: HTMLElement | null = null;
+  private bottomPillEl: HTMLElement | null = null;
+  private bottomDrawerBtn: HTMLElement | null = null;
+
+  private drawerEl: HTMLElement | null = null;
+  private headerVoiceBtn: HTMLElement | null = null;
+  private headerVoiceIcon: HTMLElement | null = null;
+  private headerVoiceText: HTMLElement | null = null;
+  private headerCancelBtn: HTMLElement | null = null;
+  private metaCountEl: HTMLElement | null = null;
+  private metaGenEl: HTMLElement | null = null;
+  private metaStateEl: HTMLElement | null = null;
+  private metaWsEl: HTMLElement | null = null;
+  private aiPanelEl: HTMLElement | null = null;
+  private formsListEl: HTMLElement | null = null;
 
   constructor(
-    onRescanRequested: () => void,
+    onRescanOrCallbacks?: (() => void) | DrawerActionCallbacks,
     onFillRequested?: (action: FormAction) => FillResult,
     onVoiceToggleRequested?: () => void,
     onStopPlaybackRequested?: () => void
   ) {
-    this.onRescanRequested = onRescanRequested;
-    this.onFillRequested = onFillRequested;
-    this.onVoiceToggleRequested = onVoiceToggleRequested;
-    this.onStopPlaybackRequested = onStopPlaybackRequested;
+    if (typeof onRescanOrCallbacks === 'object' && onRescanOrCallbacks !== null) {
+      this.onRescanRequested = onRescanOrCallbacks.onRescan;
+      this.onFillRequested = onRescanOrCallbacks.onFill;
+      this.onStartVoiceRequested = onRescanOrCallbacks.onStartVoice;
+      this.onStopAndProcessRequested = onRescanOrCallbacks.onStopAndProcess;
+      this.onCancelVoiceRequested = onRescanOrCallbacks.onCancelVoice;
+      this.onStopPlaybackRequested = onRescanOrCallbacks.onStopPlayback;
+    } else {
+      this.onRescanRequested = onRescanOrCallbacks;
+      this.onFillRequested = onFillRequested;
+      this.onStartVoiceRequested = onVoiceToggleRequested;
+      this.onStopAndProcessRequested = onVoiceToggleRequested;
+      this.onCancelVoiceRequested = onVoiceToggleRequested;
+      this.onStopPlaybackRequested = onStopPlaybackRequested;
+    }
     this.init();
   }
 
@@ -47,97 +93,13 @@ export class VoiceFormDebugDrawer {
     this.shadow = this.host.attachShadow({ mode: 'open' });
     document.documentElement.appendChild(this.host);
 
-    this.render();
+    this.buildDOM();
+    this.bindEvents();
+    this.syncUI();
   }
 
-  public updateScanResult(result: PageScanResult, latencyMs?: number): void {
-    this.currentResult = result;
-    if (latencyMs !== undefined) {
-      this.lastLatencyMs = latencyMs;
-    }
-    this.render();
-  }
-
-  public updateWsStatus(status: string, sessionId?: string): void {
-    this.wsStatus = status;
-    if (sessionId) {
-      this.wsSessionId = sessionId;
-    }
-    this.render();
-  }
-
-  public setVoiceState(status: 'idle' | 'listening' | 'processing' | 'filling' | 'speaking' | 'interrupted' | 'error'): void {
-    this.voiceStatus = status;
-    this.render();
-  }
-
-  public setGenerationId(genId: number): void {
-    this.currentGenerationId = genId;
-    this.render();
-  }
-
-  public recordInterruption(latencyMs: number): void {
-    this.lastInterruptionLatencyMs = latencyMs;
-    this.interruptionCount++;
-    this.voiceStatus = 'interrupted';
-    this.render();
-  }
-
-  public setAssistantResponse(text: string): void {
-    this.assistantResponseText = text;
-    this.render();
-  }
-
-  public setTranscript(text: string): void {
-    this.latestTranscript = text;
-    this.render();
-  }
-
-  public setExtractedActions(actions: FormAction[]): void {
-    this.extractedActions = actions;
-    this.render();
-  }
-
-  public setFillResults(results: FillResult[]): void {
-    this.fillResults = results;
-    this.render();
-  }
-
-  public setAskUser(question: string): void {
-    this.askUserQuestion = question;
-    this.render();
-  }
-
-  public setAiError(error: string): void {
-    this.aiErrorMessage = error;
-    this.render();
-  }
-
-  public setVoiceToggleCallback(cb: () => void): void {
-    this.onVoiceToggleRequested = cb;
-  }
-
-  public setStopPlaybackCallback(cb: () => void): void {
-    this.onStopPlaybackRequested = cb;
-  }
-
-  private render(): void {
+  private buildDOM(): void {
     if (!this.shadow) return;
-
-    const totalFields = this.currentResult?.totalFieldCount ?? 0;
-    const formsCount = this.currentResult?.forms.length ?? 0;
-    const orphanCount = this.currentResult?.orphanFields.length ?? 0;
-
-    const isListening = this.voiceStatus === 'listening';
-    const isProcessing = this.voiceStatus === 'processing';
-    const isSpeaking = this.voiceStatus === 'speaking';
-    const isFilling = this.voiceStatus === 'filling';
-
-    let badgeBorderClass = '';
-    if (isListening) badgeBorderClass = 'vf-pulse-listening';
-    else if (isProcessing) badgeBorderClass = 'vf-pulse-processing';
-    else if (isSpeaking) badgeBorderClass = 'vf-pulse-speaking';
-    else if (isFilling) badgeBorderClass = 'vf-pulse-filling';
 
     this.shadow.innerHTML = `
       <style>
@@ -149,188 +111,285 @@ export class VoiceFormDebugDrawer {
           color: #e2e8f0;
           z-index: 2147483647;
           position: fixed;
-          bottom: 18px;
-          right: 18px;
+          inset: 0;
+          pointer-events: none;
+          display: block;
         }
 
         * {
           box-sizing: border-box;
         }
 
-        /* Keyframe Animations */
-        @keyframes pulseGlow {
-          0%, 100% {
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.4), 0 4px 20px rgba(0, 0, 0, 0.4);
-            border-color: rgba(56, 189, 248, 0.6);
-          }
-          50% {
-            box-shadow: 0 0 25px rgba(56, 189, 248, 0.8), 0 4px 25px rgba(0, 0, 0, 0.6);
-            border-color: rgba(14, 165, 233, 1);
-          }
-        }
-
-        @keyframes pulseRed {
-          0%, 100% {
-            box-shadow: 0 0 16px rgba(239, 68, 68, 0.5), 0 4px 20px rgba(0, 0, 0, 0.5);
-            border-color: rgba(239, 68, 68, 0.8);
-          }
-          50% {
-            box-shadow: 0 0 30px rgba(239, 68, 68, 0.9), 0 4px 30px rgba(0, 0, 0, 0.7);
-            border-color: rgba(248, 113, 113, 1);
-          }
-        }
-
-        @keyframes pulsePurple {
-          0%, 100% {
-            box-shadow: 0 0 16px rgba(168, 85, 247, 0.5), 0 4px 20px rgba(0, 0, 0, 0.5);
-            border-color: rgba(168, 85, 247, 0.8);
-          }
-          50% {
-            box-shadow: 0 0 30px rgba(192, 132, 252, 0.9), 0 4px 30px rgba(0, 0, 0, 0.7);
-            border-color: rgba(216, 180, 254, 1);
-          }
-        }
-
-        @keyframes shimmerGradient {
+        /* ── Smooth Gradient Movement Animations ── */
+        @keyframes gradientFlow {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
           100% { background-position: 0% 50%; }
         }
 
-        @keyframes waveBar {
-          0%, 100% { transform: scaleY(0.3); }
-          50% { transform: scaleY(1.0); }
+        @keyframes softBreathing {
+          0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.45);
+          }
+          50% {
+            transform: scale(1.02);
+            box-shadow: 0 4px 22px rgba(239, 68, 68, 0.65);
+          }
+        }
+
+        @keyframes eqBarBounce {
+          0%, 100% { height: 3px; }
+          50% { height: 12px; }
+        }
+
+        @keyframes pulseDot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.4; transform: scale(0.85); }
         }
 
         @keyframes spinRing {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+          to { transform: rotate(360deg); }
         }
 
-        @keyframes slideInUp {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        @keyframes liveDotPing {
-          0% { transform: scale(1); opacity: 1; }
-          75%, 100% { transform: scale(2.2); opacity: 0; }
-        }
-
-        /* Floating Badge */
-        .vf-badge {
+        /* ── Bottom Floating Controller Bar ── */
+        .vf-bottom-bar {
+          position: fixed;
+          bottom: 18px;
+          right: 18px;
+          pointer-events: auto;
           display: flex;
           align-items: center;
-          gap: 9px;
-          background: rgba(15, 23, 42, 0.88);
-          backdrop-filter: blur(14px);
-          -webkit-backdrop-filter: blur(14px);
-          color: #f8fafc;
-          padding: 8px 16px;
+          gap: 10px;
+          padding: 6px 8px 6px 14px;
           border-radius: 9999px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-          cursor: pointer;
-          font-weight: 600;
-          font-size: 13px;
-          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 27, 75, 0.92), rgba(15, 23, 42, 0.94));
+          background-size: 250% 250%;
+          animation: gradientFlow 10s ease infinite;
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 20px rgba(56, 189, 248, 0.15);
           user-select: none;
-          position: relative;
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s;
         }
 
-        .vf-badge:hover {
-          transform: translateY(-2px) scale(1.02);
-          background: rgba(30, 41, 59, 0.95);
-          border-color: rgba(56, 189, 248, 0.4);
-          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 15px rgba(56, 189, 248, 0.25);
+        .vf-bottom-bar:hover {
+          border-color: rgba(56, 189, 248, 0.35);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 24px rgba(56, 189, 248, 0.25);
         }
 
-        .vf-pulse-listening {
-          animation: pulseRed 1.4s infinite ease-in-out;
-          border-color: #ef4444 !important;
-        }
-
-        .vf-pulse-processing {
-          animation: pulseGlow 1.2s infinite ease-in-out;
-          border-color: #38bdf8 !important;
-        }
-
-        .vf-pulse-speaking {
-          animation: pulsePurple 1.4s infinite ease-in-out;
-          border-color: #a855f7 !important;
-        }
-
-        .vf-pulse-filling {
-          box-shadow: 0 0 20px rgba(16, 185, 129, 0.6) !important;
-          border-color: #10b981 !important;
-        }
-
-        /* Soundwave Equalizer */
-        .vf-eq {
+        .vf-bottom-brand {
           display: flex;
           align-items: center;
-          gap: 2.5px;
-          height: 14px;
+          gap: 7px;
+          font-weight: 700;
+          font-size: 13px;
+          color: #f8fafc;
+          cursor: pointer;
+        }
+
+        .vf-brand-icon {
+          color: #38bdf8;
+          font-size: 15px;
+          filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.5));
+        }
+
+        .vf-pill-badge {
+          background: rgba(56, 189, 248, 0.15);
+          color: #7dd3fc;
+          padding: 2px 7px;
+          border-radius: 9999px;
+          font-size: 11px;
+          font-weight: 600;
+          border: 1px solid rgba(56, 189, 248, 0.25);
+        }
+
+        /* ── Simple & Clean Gradient Voice Button ── */
+        .vf-voice-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 14px;
+          border-radius: 9999px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #ffffff;
+          cursor: pointer;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          background: linear-gradient(135deg, #0284c7 0%, #2563eb 50%, #1d4ed8 100%);
+          background-size: 200% 200%;
+          animation: gradientFlow 6s ease infinite;
+          box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+          transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.25s ease;
+          user-select: none;
+        }
+
+        .vf-voice-btn:hover {
+          transform: translateY(-1px) scale(1.02);
+          box-shadow: 0 6px 18px rgba(2, 132, 199, 0.6);
+        }
+
+        .vf-voice-btn:active {
+          transform: translateY(0) scale(0.98);
+        }
+
+        /* Active Voice State - Listening: Vibrant Emerald/Cyan Stop & Fill */
+        .vf-voice-btn.vf-btn-listening {
+          background: linear-gradient(135deg, #059669 0%, #0d9488 50%, #0284c7 100%);
+          background-size: 200% 200%;
+          animation: gradientFlow 4s ease infinite, softBreathing 2s ease-in-out infinite;
+          border-color: rgba(255, 255, 255, 0.4);
+          box-shadow: 0 4px 20px rgba(16, 185, 129, 0.55);
+        }
+
+        /* Cancel Recording Button */
+        .vf-cancel-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 11px;
+          border-radius: 9999px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #fca5a5;
+          cursor: pointer;
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          background: rgba(239, 68, 68, 0.16);
+          backdrop-filter: blur(10px);
+          transition: all 0.15s ease;
+          user-select: none;
+        }
+
+        .vf-cancel-btn:hover {
+          background: rgba(239, 68, 68, 0.32);
+          border-color: rgba(239, 68, 68, 0.55);
+          color: #ffffff;
+          transform: translateY(-1px);
+        }
+
+        .vf-cancel-btn:active {
+          transform: translateY(0);
+        }
+
+        /* Live Interim Speech Transcript Chip (Gemini Style) */
+        .vf-live-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 11px;
+          border-radius: 9999px;
+          background: rgba(14, 165, 233, 0.15);
+          border: 1px solid rgba(56, 189, 248, 0.35);
+          color: #e0f2fe;
+          font-size: 11px;
+          font-weight: 500;
+          max-width: 220px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          animation: pulseDot 2.5s infinite ease-in-out;
+        }
+
+        /* Active Voice State - Speaking */
+        .vf-voice-btn.vf-btn-speaking {
+          background: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #6366f1 100%);
+          background-size: 200% 200%;
+          animation: gradientFlow 4s ease infinite;
+          border-color: rgba(255, 255, 255, 0.35);
+          box-shadow: 0 4px 20px rgba(168, 85, 247, 0.55);
+        }
+
+        /* Active Voice State - Processing */
+        .vf-voice-btn.vf-btn-processing {
+          background: linear-gradient(135deg, #d97706 0%, #f59e0b 50%, #b45309 100%);
+          background-size: 200% 200%;
+          animation: gradientFlow 3s ease infinite;
+          border-color: rgba(255, 255, 255, 0.3);
+          box-shadow: 0 4px 16px rgba(245, 158, 11, 0.45);
+        }
+
+        /* Soundwave bar equalizer */
+        .vf-sound-eq {
+          display: inline-flex;
+          align-items: center;
+          gap: 2px;
+          height: 12px;
         }
 
         .vf-eq-bar {
-          width: 3px;
-          height: 14px;
+          width: 2px;
+          height: 12px;
           border-radius: 9999px;
-          background: #38bdf8;
-          transform-origin: bottom;
+          background: #ffffff;
+          animation: eqBarBounce 0.7s ease-in-out infinite;
+        }
+        .vf-eq-bar:nth-child(1) { animation-delay: 0s; }
+        .vf-eq-bar:nth-child(2) { animation-delay: 0.2s; }
+        .vf-eq-bar:nth-child(3) { animation-delay: 0.4s; }
+
+        /* Drawer Toggle Icon Button */
+        .vf-icon-btn {
+          background: rgba(255, 255, 255, 0.08);
+          color: #94a3b8;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        .vf-eq-active .vf-eq-bar {
-          animation: waveBar 0.8s infinite ease-in-out;
+        .vf-icon-btn:hover {
+          background: rgba(255, 255, 255, 0.16);
+          color: #f8fafc;
+          border-color: rgba(255, 255, 255, 0.25);
+          transform: scale(1.05);
         }
 
-        .vf-eq-bar:nth-child(1) { animation-delay: 0.0s; height: 10px; }
-        .vf-eq-bar:nth-child(2) { animation-delay: 0.2s; height: 14px; }
-        .vf-eq-bar:nth-child(3) { animation-delay: 0.4s; height: 12px; }
-        .vf-eq-bar:nth-child(4) { animation-delay: 0.1s; height: 8px; }
-
-        .vf-pill {
-          background: rgba(3, 105, 161, 0.8);
-          color: #e0f2fe;
-          padding: 2px 8px;
-          border-radius: 9999px;
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-          border: 1px solid rgba(56, 189, 248, 0.2);
-        }
-
-        /* Drawer Overlay */
+        /* ── Sliding Inspector Drawer ── */
         .vf-drawer {
           position: fixed;
           top: 0;
           right: 0;
           bottom: 0;
-          width: 460px;
+          width: 480px;
           max-width: 92vw;
-          background: rgba(10, 15, 29, 0.94);
-          backdrop-filter: blur(24px);
-          -webkit-backdrop-filter: blur(24px);
-          border-left: 1px solid rgba(56, 189, 248, 0.18);
-          box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
+          pointer-events: auto;
+          background: radial-gradient(circle at 10% 15%, rgba(99, 102, 241, 0.18) 0%, transparent 45%),
+                      radial-gradient(circle at 90% 85%, rgba(236, 72, 153, 0.14) 0%, transparent 50%),
+                      radial-gradient(circle at 50% 50%, rgba(14, 165, 233, 0.14) 0%, transparent 55%),
+                      linear-gradient(135deg, #090d16 0%, #0f172a 50%, #0a0f1d 100%);
+          background-size: 200% 200%;
+          animation: gradientFlow 14s ease infinite;
+          backdrop-filter: blur(28px);
+          -webkit-backdrop-filter: blur(28px);
+          border-left: 1px solid rgba(255, 255, 255, 0.12);
+          box-shadow: -12px 0 40px rgba(0, 0, 0, 0.65);
           display: flex;
           flex-direction: column;
-          transform: translateX(${this.isOpen ? '0' : '100%'});
-          transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+          transform: translateX(100%);
+          transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.26s;
+          visibility: hidden;
         }
 
-        /* Header */
+        .vf-drawer.vf-drawer-open {
+          transform: translateX(0);
+          visibility: visible;
+        }
+
+        /* ── Header with Moving Gradient ── */
         .vf-header {
-          padding: 16px 18px;
+          padding: 16px 20px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-          background: rgba(15, 23, 42, 0.95);
+          background: linear-gradient(90deg, rgba(15, 23, 42, 0.95), rgba(30, 27, 75, 0.88), rgba(15, 23, 42, 0.95));
+          background-size: 200% 200%;
+          animation: gradientFlow 10s ease infinite;
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -343,160 +402,152 @@ export class VoiceFormDebugDrawer {
           display: flex;
           align-items: center;
           gap: 8px;
-          letter-spacing: -0.01em;
         }
 
         .vf-header-actions {
           display: flex;
-          gap: 8px;
+          align-items: center;
+          gap: 10px;
         }
 
-        .vf-btn {
-          background: rgba(30, 41, 59, 0.9);
-          color: #cbd5e1;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          padding: 6px 12px;
-          border-radius: 7px;
-          font-size: 12px;
+        /* Close cross button */
+        .vf-close-btn {
+          background: rgba(255, 255, 255, 0.08);
+          color: #94a3b8;
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          font-size: 14px;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.15s ease;
-          display: inline-flex;
+          display: flex;
           align-items: center;
-          gap: 6px;
+          justify-content: center;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        .vf-btn:hover {
-          background: rgba(51, 65, 85, 0.95);
-          color: #ffffff;
-          transform: translateY(-1px);
+        .vf-close-btn:hover {
+          background: rgba(239, 68, 68, 0.25);
+          border-color: rgba(239, 68, 68, 0.4);
+          color: #fca5a5;
+          transform: rotate(90deg);
         }
 
-        .vf-btn:active {
-          transform: translateY(0) scale(0.97);
-        }
-
-        .vf-btn-primary {
-          background: linear-gradient(135deg, #0284c7, #0369a1);
-          border-color: rgba(56, 189, 248, 0.4);
-          color: #ffffff;
-          box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
-        }
-
-        .vf-btn-primary:hover {
-          background: linear-gradient(135deg, #0369a1, #0284c7);
-          box-shadow: 0 4px 12px rgba(2, 132, 199, 0.5);
-        }
-
-        /* Meta Bar */
+        /* ── Status Bar ── */
         .vf-meta {
-          padding: 10px 18px;
-          background: rgba(11, 17, 32, 0.85);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 10px 20px;
+          background: rgba(2, 6, 23, 0.55);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          font-size: 12px;
+          color: #94a3b8;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 11px;
-          color: #94a3b8;
         }
 
-        .vf-latency {
-          color: #10b981;
-          font-weight: 600;
-        }
-
-        /* Content List */
+        /* ── Body ── */
         .vf-body {
-          flex: 1;
+          padding: 18px 20px;
           overflow-y: auto;
-          padding: 18px;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
+          flex: 1;
         }
 
         .vf-section {
-          background: rgba(15, 23, 42, 0.75);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 10px;
-          overflow: hidden;
-          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-          animation: slideInUp 0.22s ease-out;
+          margin-bottom: 18px;
         }
 
         .vf-section-header {
-          padding: 11px 16px;
-          background: rgba(30, 41, 59, 0.8);
-          font-weight: 600;
           font-size: 13px;
+          font-weight: 600;
           color: #f1f5f9;
+          margin-bottom: 9px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* AI Interaction Panel */
+        .vf-ai-panel {
+          background: rgba(15, 23, 42, 0.75);
+          border: 1px solid rgba(56, 189, 248, 0.25);
+          border-radius: 10px;
+          padding: 14px;
+          margin-bottom: 16px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .vf-transcript-box {
+          background: rgba(0, 0, 0, 0.35);
+          border-left: 3px solid #38bdf8;
+          padding: 8px 12px;
+          border-radius: 6px;
+          margin-bottom: 8px;
+          font-size: 12px;
+        }
+
+        .vf-response-box {
+          background: rgba(139, 92, 246, 0.16);
+          border-left: 3px solid #a855f7;
+          padding: 8px 12px;
+          border-radius: 6px;
+          margin-bottom: 8px;
+          font-size: 12px;
+          color: #f3e8ff;
+        }
+
+        .vf-action-badge {
+          display: inline-block;
+          background: rgba(16, 185, 129, 0.2);
+          border: 1px solid rgba(16, 185, 129, 0.35);
+          color: #34d399;
+          padding: 2px 7px;
+          border-radius: 4px;
+          font-size: 11px;
+          margin: 2px;
         }
 
         .vf-field-card {
-          padding: 12px 16px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          background: rgba(15, 23, 42, 0.55);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 8px;
+          padding: 9px 12px;
+          margin-bottom: 8px;
           transition: all 0.15s ease;
-          cursor: pointer;
-        }
-
-        .vf-field-card:last-child {
-          border-bottom: none;
         }
 
         .vf-field-card:hover {
-          background: rgba(23, 37, 84, 0.5);
-          border-left: 2px solid #38bdf8;
-          padding-left: 14px;
+          border-color: rgba(56, 189, 248, 0.4);
+          background: rgba(30, 41, 59, 0.65);
         }
 
         .vf-field-top {
           display: flex;
           justify-content: space-between;
-          align-items: baseline;
+          align-items: center;
           margin-bottom: 4px;
         }
 
         .vf-field-label {
           font-weight: 600;
-          color: #38bdf8;
-          font-size: 13px;
+          color: #f8fafc;
         }
 
         .vf-tag {
           font-size: 10px;
           font-weight: 700;
-          padding: 2px 7px;
+          padding: 1px 6px;
           border-radius: 4px;
           text-transform: uppercase;
         }
 
-        .vf-tag-type {
-          background: rgba(51, 65, 85, 0.8);
-          color: #cbd5e1;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-        }
-
-        .vf-tag-req {
-          background: rgba(127, 29, 29, 0.8);
-          color: #fecaca;
-          border: 1px solid rgba(239, 68, 68, 0.3);
-        }
+        .vf-tag-type { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+        .vf-tag-req { background: rgba(239, 68, 68, 0.2); color: #f87171; margin-left: 4px; }
 
         .vf-field-detail {
           font-size: 11px;
           color: #94a3b8;
           margin-top: 2px;
-          word-break: break-all;
-        }
-
-        .vf-field-selector {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          color: #a5b4fc;
-          font-size: 10.5px;
         }
 
         .vf-field-val {
@@ -504,39 +555,14 @@ export class VoiceFormDebugDrawer {
           font-weight: 600;
         }
 
-        .vf-options-list {
-          margin-top: 6px;
-          padding-left: 10px;
-          border-left: 2px solid rgba(56, 189, 248, 0.3);
-          font-size: 11px;
-          color: #cbd5e1;
-        }
-
-        .vf-empty-msg {
-          text-align: center;
-          padding: 36px 16px;
-          color: #64748b;
-        }
-
-        /* Pulsing Dot */
         .vf-live-dot {
           width: 8px;
           height: 8px;
           border-radius: 50%;
           display: inline-block;
-          position: relative;
+          animation: pulseDot 2s infinite ease-in-out;
         }
 
-        .vf-live-dot::after {
-          content: '';
-          position: absolute;
-          top: 0; left: 0; right: 0; bottom: 0;
-          border-radius: 50%;
-          background: inherit;
-          animation: liveDotPing 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
-        }
-
-        /* Spinner */
         .vf-spinner {
           width: 12px;
           height: 12px;
@@ -548,239 +574,422 @@ export class VoiceFormDebugDrawer {
         }
       </style>
 
-      <!-- Trigger Badge -->
-      <div class="vf-badge ${badgeBorderClass}" id="vf-toggle-btn">
-        <span style="font-size: 16px; color: ${isListening ? '#f87171' : (isSpeaking ? '#c084fc' : '#38bdf8')}">⚡</span>
-        <span>VoiceForm</span>
-        
-        ${isListening ? `
-          <div class="vf-eq vf-eq-active">
-            <span class="vf-eq-bar" style="background:#ef4444"></span>
-            <span class="vf-eq-bar" style="background:#ef4444"></span>
-            <span class="vf-eq-bar" style="background:#ef4444"></span>
-            <span class="vf-eq-bar" style="background:#ef4444"></span>
-          </div>
-        ` : (isSpeaking ? `
-          <div class="vf-eq vf-eq-active">
-            <span class="vf-eq-bar" style="background:#a855f7"></span>
-            <span class="vf-eq-bar" style="background:#a855f7"></span>
-            <span class="vf-eq-bar" style="background:#a855f7"></span>
-            <span class="vf-eq-bar" style="background:#a855f7"></span>
-          </div>
-        ` : (isProcessing ? `
-          <span class="vf-spinner"></span>
-        ` : ''))}
+      <!-- Bottom Floating Bar with Start/Stop Button & Field Count -->
+      <div class="vf-bottom-bar" id="vf-bottom-bar">
+        <div class="vf-bottom-brand" id="vf-brand-trigger" title="Click to toggle inspector">
+          <span class="vf-brand-icon">⚡</span>
+          <span>VoiceForm</span>
+          <span class="vf-pill-badge" id="vf-bottom-pill">0 fields</span>
+        </div>
 
-        <span class="vf-pill">${totalFields} fields</span>
+        <!-- Live transcript chip (Gemini-style real-time speech feedback) -->
+        <div class="vf-live-chip" id="vf-bottom-live-chip" style="display:none;" title="Listening...">
+          <span>🎙️</span>
+          <span id="vf-bottom-live-text" style="max-width:180px; overflow:hidden; text-overflow:ellipsis;"></span>
+        </div>
+
+        <!-- Primary Start / Stop Voice Button -->
+        <button class="vf-voice-btn" id="vf-bottom-voice-btn" title="Start Voice Dictation">
+          <span id="vf-bottom-voice-icon">🎙️</span>
+          <span id="vf-bottom-voice-text">Start Voice</span>
+          <div class="vf-sound-eq" id="vf-bottom-voice-eq" style="display:none;">
+            <span class="vf-eq-bar"></span>
+            <span class="vf-eq-bar"></span>
+            <span class="vf-eq-bar"></span>
+          </div>
+        </button>
+
+        <!-- Cancel recording button (only active while listening) -->
+        <button class="vf-cancel-btn" id="vf-bottom-cancel-btn" style="display:none;" title="Cancel recording without filling">
+          <span>✕</span>
+          <span>Cancel</span>
+        </button>
+
+        <!-- Toggle drawer button -->
+        <button class="vf-icon-btn" id="vf-bottom-drawer-btn" title="Toggle Form Inspector">📋</button>
       </div>
 
-      <!-- Sliding Drawer -->
-      <div class="vf-drawer">
+      <!-- Sliding Inspector Drawer with Moving Gradient Mesh -->
+      <div class="vf-drawer" id="vf-drawer-el">
         <div class="vf-header">
           <div class="vf-title">
-            <span style="color:#38bdf8">⚡</span> VoiceForm Inspector
+            <span style="color:#38bdf8;">⚡</span>
+            <span>VoiceForm Inspector</span>
           </div>
           <div class="vf-header-actions">
-            <button class="vf-btn" id="vf-voice-btn" style="background:${isSpeaking ? '#8b5cf6' : (isListening ? '#ef4444' : (isProcessing ? '#f59e0b' : (isFilling ? '#10b981' : '#0284c7')))};color:#fff;border-color:transparent;font-weight:600;">
-              ${isSpeaking ? '⏹️ Stop Speech' : (isListening ? '⏹️ Stop Voice' : (isProcessing ? '⏳ Reasoning...' : (isFilling ? '⚡ Filling...' : '🎙️ Start Voice')))}
+            <!-- Header Start / Stop Voice Button -->
+            <button class="vf-voice-btn" id="vf-header-voice-btn" title="Start Voice Dictation">
+              <span id="vf-header-voice-icon">🎙️</span>
+              <span id="vf-header-voice-text">Start Voice</span>
+              <div class="vf-sound-eq" id="vf-header-voice-eq" style="display:none;">
+                <span class="vf-eq-bar"></span>
+                <span class="vf-eq-bar"></span>
+                <span class="vf-eq-bar"></span>
+              </div>
             </button>
-            <button class="vf-btn" id="vf-fill-btn" style="background: rgba(15, 118, 110, 0.9); color:#fff; border-color: rgba(20, 184, 166, 0.4);">⚡ Fill Demo</button>
-            <button class="vf-btn" id="vf-copy-btn">Copy JSON</button>
-            <button class="vf-btn vf-btn-primary" id="vf-rescan-btn">Scan</button>
-            <button class="vf-btn" id="vf-close-btn" style="padding: 6px 10px;">✕</button>
+            <!-- Header Cancel Button -->
+            <button class="vf-cancel-btn" id="vf-header-cancel-btn" style="display:none;" title="Cancel recording without filling">
+              <span>✕</span>
+              <span>Cancel</span>
+            </button>
+            <!-- Cross button for closing drawer -->
+            <button class="vf-close-btn" id="vf-close-btn" title="Close Inspector">✕</button>
           </div>
         </div>
 
         <div class="vf-meta">
-          <div>
-            <span>Detected: <strong>${formsCount}</strong> form(s), <strong>${orphanCount}</strong> orphan(s)</span>
-            ${this.lastLatencyMs !== null ? `<span class="vf-latency"> • DOM: ${this.lastLatencyMs}ms</span>` : ''}
-            ${this.lastInterruptionLatencyMs !== null ? `<span style="color:#f43f5e; font-weight:700;"> • Interrupt: ${this.lastInterruptionLatencyMs.toFixed(1)}ms</span>` : ''}
+          <div id="vf-meta-detected">
+            <span>Detected: <strong>0</strong> form(s)</span>
           </div>
-          <div style="display:flex; gap:12px; align-items:center;">
-            <span style="font-weight:700; color: #38bdf8;">
-              Gen #${this.currentGenerationId}
+          <div style="display:flex; gap:10px; align-items:center;">
+            <span style="font-weight:700; color: #38bdf8;" id="vf-meta-gen">
+              Gen #0
             </span>
-            <span style="display:inline-flex; align-items:center; gap:5px; font-weight:600; color: ${isSpeaking ? '#c084fc' : (this.voiceStatus === 'interrupted' ? '#f43f5e' : (isListening ? '#f87171' : (isProcessing ? '#facc15' : (isFilling ? '#4ade80' : '#94a3b8'))))}">
-              <span class="vf-live-dot" style="background: ${isSpeaking ? '#c084fc' : (isListening ? '#f87171' : (isProcessing ? '#facc15' : (isFilling ? '#4ade80' : '#94a3b8')))}"></span>
-              ${this.voiceStatus.toUpperCase()}
+            <span style="display:inline-flex; align-items:center; gap:5px; font-weight:600;" id="vf-meta-state">
+              <span class="vf-live-dot" style="background: #94a3b8"></span>
+              <span>IDLE</span>
             </span>
-            <span style="display:inline-flex; align-items:center; gap:5px; font-weight:600; color: ${this.wsStatus === 'CONNECTED' ? '#4ade80' : (this.wsStatus === 'CONNECTING' ? '#facc15' : '#94a3b8')}">
-              <span class="vf-live-dot" style="background: ${this.wsStatus === 'CONNECTED' ? '#4ade80' : (this.wsStatus === 'CONNECTING' ? '#facc15' : '#94a3b8')}"></span>
-              ${this.wsStatus}
+            <span style="display:inline-flex; align-items:center; gap:5px; font-weight:600;" id="vf-meta-ws">
+              <span class="vf-live-dot" style="background: #94a3b8"></span>
+              <span>DISCONNECTED</span>
             </span>
-            ${this.wsSessionId ? `<span style="color:#64748b; font-size:10px;">(${this.wsSessionId.slice(0, 8)})</span>` : ''}
           </div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; font-size:11px; padding: 6px 16px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(15,23,42,0.4); flex-wrap: wrap;">
+          <span style="color:#94a3b8; font-weight:600;">Speech Provider:</span>
+          <span class="vf-pill-badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-size:10px; padding:2px 7px; border-radius:9999px;">🎙️ ASR: Web Speech API (Google) / Qwen3-ASR</span>
+          <span class="vf-pill-badge" style="background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3); font-size:10px; padding:2px 7px; border-radius:9999px;">🔊 TTS: Rime API (Mist)</span>
         </div>
 
         <div class="vf-body">
-          ${this.renderAiPanel()}
-          ${this.renderFormsList()}
+          <div id="vf-ai-panel-container"></div>
+          <div id="vf-forms-container">
+            <div style="text-align: center; padding: 36px 16px; color: #64748b;">
+              Navigate form fields or speak to autofill hands-free.
+            </div>
+          </div>
         </div>
       </div>
     `;
 
-    this.bindEvents();
+    // Cache elements for in-place updates
+    this.bottomVoiceBtn = this.shadow.getElementById('vf-bottom-voice-btn');
+    this.bottomVoiceIcon = this.shadow.getElementById('vf-bottom-voice-icon');
+    this.bottomVoiceText = this.shadow.getElementById('vf-bottom-voice-text');
+    this.bottomCancelBtn = this.shadow.getElementById('vf-bottom-cancel-btn');
+    this.bottomLiveChipEl = this.shadow.getElementById('vf-bottom-live-chip');
+    this.bottomLiveTextEl = this.shadow.getElementById('vf-bottom-live-text');
+    this.bottomPillEl = this.shadow.getElementById('vf-bottom-pill');
+    this.bottomDrawerBtn = this.shadow.getElementById('vf-bottom-drawer-btn');
+
+    this.drawerEl = this.shadow.getElementById('vf-drawer-el');
+    this.headerVoiceBtn = this.shadow.getElementById('vf-header-voice-btn');
+    this.headerVoiceIcon = this.shadow.getElementById('vf-header-voice-icon');
+    this.headerVoiceText = this.shadow.getElementById('vf-header-voice-text');
+    this.headerCancelBtn = this.shadow.getElementById('vf-header-cancel-btn');
+    this.metaCountEl = this.shadow.getElementById('vf-meta-detected');
+    this.metaGenEl = this.shadow.getElementById('vf-meta-gen');
+    this.metaStateEl = this.shadow.getElementById('vf-meta-state');
+    this.metaWsEl = this.shadow.getElementById('vf-meta-ws');
+    this.aiPanelEl = this.shadow.getElementById('vf-ai-panel-container');
+    this.formsListEl = this.shadow.getElementById('vf-forms-container');
   }
 
-  private renderAiPanel(): string {
-    const hasData = this.latestTranscript || this.extractedActions.length > 0 || this.fillResults.length > 0 || this.askUserQuestion || this.aiErrorMessage || this.assistantResponseText || this.lastInterruptionLatencyMs !== null;
-    if (!hasData && this.voiceStatus === 'idle') return '';
+  private bindEvents(): void {
+    if (!this.shadow) return;
 
-    let statusColor = '#94a3b8';
-    let statusText = 'Idle';
+    // Primary voice button in bottom bar
+    this.bottomVoiceBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.handlePrimaryVoiceClick();
+    });
+
+    // Cancel button in bottom bar
+    this.bottomCancelBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.handleCancelVoiceClick();
+    });
+
+    // Primary voice button in header
+    this.headerVoiceBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.handlePrimaryVoiceClick();
+    });
+
+    // Cancel button in header
+    this.headerCancelBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.handleCancelVoiceClick();
+    });
+
+    // Toggle drawer via brand click or toggle button
+    this.shadow.getElementById('vf-brand-trigger')?.addEventListener('click', () => {
+      this.isOpen = !this.isOpen;
+      this.syncDrawerVisibility();
+    });
+
+    this.bottomDrawerBtn?.addEventListener('click', () => {
+      this.isOpen = !this.isOpen;
+      this.syncDrawerVisibility();
+    });
+
+    // Cross button (✕) closes drawer
+    this.shadow.getElementById('vf-close-btn')?.addEventListener('click', () => {
+      this.isOpen = false;
+      this.syncDrawerVisibility();
+    });
+  }
+
+  private handlePrimaryVoiceClick(): void {
     if (this.voiceStatus === 'listening') {
-      statusColor = '#ef4444';
-      statusText = '🎙️ Listening to microphone...';
-    } else if (this.voiceStatus === 'interrupted') {
-      statusColor = '#f43f5e';
-      statusText = `⚡ Interrupted (${this.lastInterruptionLatencyMs !== null ? `${this.lastInterruptionLatencyMs.toFixed(1)}ms` : ''})`;
-    } else if (this.voiceStatus === 'processing') {
-      statusColor = '#f59e0b';
-      statusText = '⏳ ASR & LLM Reasoning...';
-    } else if (this.voiceStatus === 'filling') {
-      statusColor = '#10b981';
-      statusText = '⚡ Executing Form Fill...';
+      if (this.onStopAndProcessRequested) {
+        this.onStopAndProcessRequested();
+      }
     } else if (this.voiceStatus === 'speaking') {
-      statusColor = '#8b5cf6';
-      statusText = '🔊 Speaking (Rime TTS)...';
-    } else if (this.voiceStatus === 'error') {
-      statusColor = '#f87171';
-      statusText = '⚠️ Error encountered';
+      if (this.onStopPlaybackRequested) {
+        this.onStopPlaybackRequested();
+      }
+    } else {
+      // Idle, Error, Interrupted, or any other state
+      if (this.onStartVoiceRequested) {
+        this.onStartVoiceRequested();
+      }
+    }
+  }
+
+  private handleCancelVoiceClick(): void {
+    if (this.onCancelVoiceRequested) {
+      this.onCancelVoiceRequested();
+    }
+  }
+
+  private syncDrawerVisibility(): void {
+    if (!this.drawerEl) return;
+    if (this.isOpen) {
+      this.drawerEl.classList.add('vf-drawer-open');
+      if (this.bottomDrawerBtn) this.bottomDrawerBtn.textContent = '✕';
+    } else {
+      this.drawerEl.classList.remove('vf-drawer-open');
+      if (this.bottomDrawerBtn) this.bottomDrawerBtn.textContent = '📋';
+    }
+  }
+
+  private syncUI(): void {
+    this.syncVoiceStateUI();
+    this.syncWsStatusUI();
+    this.syncAiPanelUI();
+    this.syncDrawerVisibility();
+  }
+
+  private syncVoiceStateUI(): void {
+    const isListening = this.voiceStatus === 'listening';
+    const isProcessing = this.voiceStatus === 'processing';
+    const isSpeaking = this.voiceStatus === 'speaking';
+    const isFilling = this.voiceStatus === 'filling';
+
+    // Synchronize both buttons (Bottom bar button + Header button)
+    const buttons = [this.bottomVoiceBtn, this.headerVoiceBtn];
+    buttons.forEach((btn) => {
+      if (!btn) return;
+      btn.classList.remove('vf-btn-listening', 'vf-btn-speaking', 'vf-btn-processing');
+      if (isListening) {
+        btn.classList.add('vf-btn-listening');
+      } else if (isSpeaking) {
+        btn.classList.add('vf-btn-speaking');
+      } else if (isProcessing || isFilling) {
+        btn.classList.add('vf-btn-processing');
+      }
+    });
+
+    // Icons and Text
+    let icon = '🎙️';
+    let text = 'Start Voice';
+    let showEq = false;
+
+    if (isListening) {
+      icon = '⏹️';
+      text = 'Stop & Fill';
+      showEq = true;
+    } else if (isSpeaking) {
+      icon = '⏹️';
+      text = 'Stop Speech';
+      showEq = true;
+    } else if (isProcessing) {
+      icon = '⏳';
+      text = 'Thinking...';
+    } else if (isFilling) {
+      icon = '⚡';
+      text = 'Filling...';
     }
 
-    return `
-      <div class="vf-section" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(11, 19, 41, 0.9);">
-        <div class="vf-section-header" style="background: rgba(30, 58, 138, 0.7); color: #bae6fd;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:14px;">🤖</span>
-            <span>AI Voice Pipeline</span>
-          </div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            ${this.voiceStatus === 'listening' || this.voiceStatus === 'speaking' ? `
-              <div class="vf-eq vf-eq-active">
-                <span class="vf-eq-bar" style="background:${this.voiceStatus === 'listening' ? '#ef4444' : '#c084fc'}"></span>
-                <span class="vf-eq-bar" style="background:${this.voiceStatus === 'listening' ? '#ef4444' : '#c084fc'}"></span>
-                <span class="vf-eq-bar" style="background:${this.voiceStatus === 'listening' ? '#ef4444' : '#c084fc'}"></span>
-                <span class="vf-eq-bar" style="background:${this.voiceStatus === 'listening' ? '#ef4444' : '#c084fc'}"></span>
-              </div>
-            ` : (this.voiceStatus === 'processing' ? `<span class="vf-spinner"></span>` : '')}
-            <span class="vf-pill" style="background:${statusColor}; color: #fff; border:none;">${statusText}</span>
-          </div>
-        </div>
-        <div style="padding: 14px; display: flex; flex-direction: column; gap: 10px;">
-          ${this.latestTranscript ? `
-            <div style="animation: slideInUp 0.2s ease-out;">
-              <div style="font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em;">🎙️ Transcript:</div>
-              <div style="background: rgba(30, 41, 59, 0.85); padding: 9px 12px; border-radius: 7px; color: #f8fafc; font-style: italic; border: 1px solid rgba(255,255,255,0.06); box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);">
-                "${escapeHtml(this.latestTranscript)}"
-              </div>
-            </div>
-          ` : ''}
+    if (this.bottomVoiceIcon) this.bottomVoiceIcon.textContent = icon;
+    if (this.bottomVoiceText) this.bottomVoiceText.textContent = text;
+    if (this.headerVoiceIcon) this.headerVoiceIcon.textContent = icon;
+    if (this.headerVoiceText) this.headerVoiceText.textContent = text;
 
-          ${this.extractedActions.length > 0 ? `
-            <div style="animation: slideInUp 0.2s ease-out;">
-              <div style="font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em;">⚡ Extracted Actions (${this.extractedActions.length}):</div>
-              <div style="display: flex; flex-direction: column; gap: 5px;">
-                ${this.extractedActions.map(a => `
-                  <div style="background: rgba(30, 41, 59, 0.85); padding: 7px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; border: 1px solid rgba(56, 189, 248, 0.2); display:flex; justify-content:space-between; align-items:center;">
-                    <span><span style="color: #38bdf8; font-weight:700;">${escapeHtml(a.action)}</span> ➜ <span style="color: #facc15;">${escapeHtml(a.field_id || a.selector || 'unknown')}</span></span>
-                    <span style="color: #4ade80; font-weight:700;">"${escapeHtml(String(a.value))}"</span>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
+    const bottomEq = this.shadow?.getElementById('vf-bottom-voice-eq');
+    const headerEq = this.shadow?.getElementById('vf-header-voice-eq');
+    if (bottomEq) bottomEq.style.display = showEq ? 'inline-flex' : 'none';
+    if (headerEq) headerEq.style.display = showEq ? 'inline-flex' : 'none';
 
-          ${this.assistantResponseText ? `
-            <div style="background: rgba(6, 78, 59, 0.7); border: 1px solid rgba(5, 150, 105, 0.5); padding: 11px 14px; border-radius: 7px; color: #ecfdf5; animation: slideInUp 0.2s ease-out;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                <span style="font-size: 11px; font-weight: 700; color: #6ee7b7; text-transform: uppercase;">🔊 Assistant Audio Confirmation:</span>
-                ${this.voiceStatus === 'speaking' ? `
-                  <button class="vf-btn" id="vf-stop-speech-btn" style="background: #ef4444; color: #fff; border-color: transparent; padding: 2px 8px; font-size: 11px; font-weight: 600;">⏹️ Stop Audio</button>
-                ` : ''}
-              </div>
-              <div style="font-size: 13px; font-style: italic; line-height: 1.45;">
-                "${escapeHtml(this.assistantResponseText)}"
-              </div>
-            </div>
-          ` : ''}
+    // Toggle cancel button visibility (only visible during listening)
+    if (this.bottomCancelBtn) {
+      this.bottomCancelBtn.style.display = isListening ? 'inline-flex' : 'none';
+    }
+    if (this.headerCancelBtn) {
+      this.headerCancelBtn.style.display = isListening ? 'inline-flex' : 'none';
+    }
 
-          ${this.askUserQuestion ? `
-            <div style="background: rgba(69, 26, 3, 0.8); border: 1px solid rgba(180, 83, 9, 0.6); padding: 9px 12px; border-radius: 7px; color: #fef3c7; animation: slideInUp 0.2s ease-out;">
-              <strong>❓ Clarification Needed:</strong> ${escapeHtml(this.askUserQuestion)}
-            </div>
-          ` : ''}
+    if (!isListening && this.bottomLiveChipEl) {
+      this.bottomLiveChipEl.style.display = 'none';
+    }
 
-          ${this.aiErrorMessage ? `
-            <div style="background: rgba(69, 10, 10, 0.85); border: 1px solid rgba(185, 28, 28, 0.6); padding: 9px 12px; border-radius: 7px; color: #fecaca; animation: slideInUp 0.2s ease-out;">
-              <strong>⚠️ Error:</strong> ${escapeHtml(this.aiErrorMessage)}
-            </div>
-          ` : ''}
-        </div>
-      </div>
+    // Update Meta State Pill
+    if (this.metaStateEl) {
+      let stateColor = '#94a3b8';
+      if (isSpeaking) stateColor = '#c084fc';
+      else if (this.voiceStatus === 'interrupted') stateColor = '#f43f5e';
+      else if (isListening) stateColor = '#f87171';
+      else if (isProcessing) stateColor = '#facc15';
+      else if (isFilling) stateColor = '#4ade80';
+
+      this.metaStateEl.style.color = stateColor;
+      this.metaStateEl.innerHTML = `
+        <span class="vf-live-dot" style="background: ${stateColor}"></span>
+        <span>${this.voiceStatus.toUpperCase()}</span>
+      `;
+    }
+
+    if (this.metaGenEl) {
+      this.metaGenEl.textContent = `Gen #${this.currentGenerationId}`;
+    }
+  }
+
+  private syncWsStatusUI(): void {
+    if (!this.metaWsEl) return;
+    const isConn = this.wsStatus === 'CONNECTED';
+    const isConnecting = this.wsStatus === 'CONNECTING';
+    const color = isConn ? '#4ade80' : (isConnecting ? '#facc15' : '#94a3b8');
+    this.metaWsEl.style.color = color;
+    this.metaWsEl.innerHTML = `
+      <span class="vf-live-dot" style="background: ${color}"></span>
+      <span>${this.wsStatus}</span>
+      ${this.wsSessionId ? `<span style="color:#64748b; font-size:10px;">(${this.wsSessionId.slice(0, 8)})</span>` : ''}
     `;
   }
 
-  private renderFormsList(): string {
-    if (!this.currentResult || this.currentResult.totalFieldCount === 0) {
-      return `<div class="vf-empty-msg">No form inputs detected on this page.</div>`;
+  private syncAiPanelUI(): void {
+    if (!this.aiPanelEl) return;
+    const hasData = this.latestTranscript || this.extractedActions.length > 0 || this.fillResults.length > 0 || this.askUserQuestion || this.aiErrorMessage || this.assistantResponseText;
+    if (!hasData && this.voiceStatus === 'idle') {
+      this.aiPanelEl.innerHTML = '';
+      return;
     }
 
-    let html = '';
+    let html = `<div class="vf-ai-panel">`;
 
-    // 1. Detected Forms
-    for (const form of this.currentResult.forms) {
+    if (this.latestTranscript) {
       html += `
-        <div class="vf-section">
-          <div class="vf-section-header">
-            <span>📋 ${escapeHtml(form.title || form.formId)}</span>
-            <span class="vf-pill">${form.fieldCount} fields</span>
-          </div>
+        <div class="vf-transcript-box">
+          <div style="font-weight:600; color:#38bdf8; margin-bottom:2px;">🎙️ You Said:</div>
+          <div>"${escapeHtml(this.latestTranscript)}"</div>
+        </div>`;
+    }
+
+    if (this.assistantResponseText) {
+      html += `
+        <div class="vf-response-box">
+          <div style="font-weight:600; color:#c084fc; margin-bottom:2px;">🔊 Assistant:</div>
+          <div>"${escapeHtml(this.assistantResponseText)}"</div>
+        </div>`;
+    }
+
+    if (this.extractedActions.length > 0) {
+      html += `
+        <div style="margin-top:6px; margin-bottom:6px;">
+          <div style="font-size:11px; font-weight:600; color:#94a3b8; margin-bottom:4px;">Filled Actions:</div>
           <div>
-            ${form.fields.map(f => this.renderFieldCard(f)).join('')}
+            ${this.extractedActions.map(a => `<span class="vf-action-badge">⚡ ${escapeHtml(a.field_id)} = "${escapeHtml(String(a.value))}"</span>`).join('')}
           </div>
-        </div>
+        </div>`;
+    }
+
+    if (this.askUserQuestion) {
+      html += `
+        <div style="background: rgba(245, 158, 11, 0.15); border-left: 3px solid #f59e0b; padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: 12px; color: #fde68a;">
+          ❓ <strong>Clarification:</strong> ${escapeHtml(this.askUserQuestion)}
+        </div>`;
+    }
+
+    if (this.aiErrorMessage) {
+      html += `
+        <div style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid #ef4444; padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: 12px; color: #fca5a5;">
+          ⚠️ ${escapeHtml(this.aiErrorMessage)}
+        </div>`;
+    }
+
+    html += `</div>`;
+    this.aiPanelEl.innerHTML = html;
+  }
+
+  public updateScanResult(result: PageScanResult, latencyMs?: number): void {
+    this.currentResult = result;
+    if (latencyMs !== undefined) {
+      this.lastLatencyMs = latencyMs;
+    }
+
+    const totalFields = result.totalFieldCount;
+    if (this.bottomPillEl) {
+      this.bottomPillEl.textContent = `${totalFields} fields`;
+    }
+
+    if (this.metaCountEl) {
+      const formsCount = result.forms.length;
+      const orphanCount = result.orphanFields.length;
+      const latencyStr = this.lastLatencyMs !== null ? ` • DOM: ${this.lastLatencyMs}ms` : '';
+      const interruptStr = this.lastInterruptionLatencyMs !== null ? ` • Interrupt: ${this.lastInterruptionLatencyMs.toFixed(1)}ms (x${this.interruptionCount})` : '';
+      this.metaCountEl.innerHTML = `
+        <span>Detected: <strong>${formsCount}</strong> form(s), <strong>${orphanCount}</strong> orphan(s)</span>
+        <span style="color:#94a3b8;">${latencyStr}</span>
+        <span style="color:#f43f5e; font-weight:700;">${interruptStr}</span>
       `;
     }
 
-    // 2. Orphan Fields
-    if (this.currentResult.orphanFields.length > 0) {
-      html += `
-        <div class="vf-section">
-          <div class="vf-section-header">
-            <span>🌐 Orphan Fields (Outside &lt;form&gt;)</span>
-            <span class="vf-pill">${this.currentResult.orphanFields.length} fields</span>
-          </div>
-          <div>
-            ${this.currentResult.orphanFields.map(f => this.renderFieldCard(f)).join('')}
-          </div>
-        </div>
-      `;
+    if (this.formsListEl) {
+      let html = '';
+      if (result.forms.length === 0 && result.orphanFields.length === 0) {
+        html = `<div style="text-align: center; padding: 36px 16px; color: #64748b;">No form fields detected.</div>`;
+      } else {
+        result.forms.forEach((form, idx) => {
+          html += `
+            <div class="vf-section">
+              <div class="vf-section-header">
+                <span>📋 Form #${idx + 1} (${escapeHtml(form.title || form.name || form.formId || 'unnamed')})</span>
+                <span class="vf-pill-badge">${form.fields.length} fields</span>
+              </div>
+              <div>${form.fields.map(f => this.renderFieldCard(f)).join('')}</div>
+            </div>`;
+        });
+        if (result.orphanFields.length > 0) {
+          html += `
+            <div class="vf-section">
+              <div class="vf-section-header">
+                <span>🌐 Orphan Fields</span>
+                <span class="vf-pill-badge">${result.orphanFields.length} fields</span>
+              </div>
+              <div>${result.orphanFields.map(f => this.renderFieldCard(f)).join('')}</div>
+            </div>`;
+        }
+      }
+      this.formsListEl.innerHTML = html;
+      this.bindFieldCardHovers();
     }
-
-    return html;
   }
 
   private renderFieldCard(field: FormField): string {
     const valStr = typeof field.currentValue === 'boolean'
       ? (field.currentValue ? 'Checked' : 'Unchecked')
-      : (field.currentValue ? `"${escapeHtml(field.currentValue)}"` : '<empty>');
-
-    let optionsHtml = '';
-    if (field.type === 'select' && field.options) {
-      optionsHtml = `
-        <div class="vf-options-list">
-          Options (${field.options.length}): ${field.options.map(o => `${escapeHtml(o.label)} [${escapeHtml(o.value)}]${o.selected ? ' ✓' : ''}`).join(', ')}
-        </div>
-      `;
-    } else if (field.type === 'radio' && field.radioOptions) {
-      optionsHtml = `
-        <div class="vf-options-list">
-          Radio items (${field.radioOptions.length}): ${field.radioOptions.map(r => `${escapeHtml(r.label)} (${escapeHtml(r.value)})${r.checked ? ' ●' : ' ○'}`).join(' | ')}
-        </div>
-      `;
-    }
+      : (field.currentValue ? `"${escapeHtml(String(field.currentValue))}"` : '<empty>');
 
     return `
       <div class="vf-field-card" data-selector="${escapeHtml(field.selector)}">
@@ -791,105 +1000,14 @@ export class VoiceFormDebugDrawer {
             ${field.validation.required ? '<span class="vf-tag vf-tag-req">REQ</span>' : ''}
           </div>
         </div>
-        <div class="vf-field-detail vf-field-selector">${escapeHtml(field.selector)}</div>
-        <div class="vf-field-detail">
-          Value: <span class="vf-field-val">${valStr}</span>
-          ${field.placeholder ? ` • Placeholder: "${escapeHtml(field.placeholder)}"` : ''}
-          ${field.autocomplete ? ` • Autocomplete: ${escapeHtml(field.autocomplete)}` : ''}
-        </div>
-        ${optionsHtml}
+        <div class="vf-field-detail" style="color: #64748b; font-family: monospace;">${escapeHtml(field.selector)}</div>
+        <div class="vf-field-detail">Value: <span class="vf-field-val">${valStr}</span></div>
       </div>
     `;
   }
 
-  private bindEvents(): void {
+  private bindFieldCardHovers(): void {
     if (!this.shadow) return;
-
-    // Toggle button
-    const toggleBtn = this.shadow.getElementById('vf-toggle-btn');
-    toggleBtn?.addEventListener('click', () => {
-      this.isOpen = !this.isOpen;
-      this.render();
-    });
-
-    // Voice / Stop Button
-    const voiceBtn = this.shadow.getElementById('vf-voice-btn');
-    voiceBtn?.addEventListener('click', () => {
-      if (this.voiceStatus === 'speaking') {
-        if (this.onStopPlaybackRequested) {
-          this.onStopPlaybackRequested();
-        }
-      } else if (this.onVoiceToggleRequested) {
-        this.onVoiceToggleRequested();
-      }
-    });
-
-    // Dedicated Stop Speech Button in AI Panel
-    const stopSpeechBtn = this.shadow.getElementById('vf-stop-speech-btn');
-    stopSpeechBtn?.addEventListener('click', () => {
-      if (this.onStopPlaybackRequested) {
-        this.onStopPlaybackRequested();
-      }
-    });
-
-    // Close button
-    const closeBtn = this.shadow.getElementById('vf-close-btn');
-    closeBtn?.addEventListener('click', () => {
-      this.isOpen = false;
-      this.render();
-    });
-
-    // Rescan button
-    const rescanBtn = this.shadow.getElementById('vf-rescan-btn');
-    rescanBtn?.addEventListener('click', () => {
-      this.onRescanRequested();
-    });
-
-    // Copy JSON
-    const copyBtn = this.shadow.getElementById('vf-copy-btn');
-    copyBtn?.addEventListener('click', () => {
-      if (this.currentResult) {
-        navigator.clipboard.writeText(JSON.stringify(this.currentResult, null, 2))
-          .then(() => {
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => { copyBtn.textContent = 'Copy JSON'; }, 1500);
-          })
-          .catch(() => alert('Failed to copy to clipboard'));
-      }
-    });
-
-    // Fill Demo
-    const fillBtn = this.shadow.getElementById('vf-fill-btn');
-    fillBtn?.addEventListener('click', () => {
-      if (!this.currentResult || !this.onFillRequested) return;
-      const allFields = [
-        ...this.currentResult.forms.flatMap(f => f.fields),
-        ...this.currentResult.orphanFields
-      ];
-      for (const field of allFields) {
-        if (field.disabled || field.readOnly) continue;
-        let sampleVal: string | boolean = 'Alex Morgan';
-        if (field.type === 'email') sampleVal = 'alex.morgan@example.com';
-        else if (field.type === 'number') sampleVal = '30';
-        else if (field.type === 'tel') sampleVal = '+1 (555) 234-5678';
-        else if (field.type === 'date') sampleVal = '2026-09-05';
-        else if (field.type === 'time') sampleVal = '14:30';
-        else if (field.type === 'datetime-local') sampleVal = '2026-09-05T14:30';
-        else if (field.type === 'checkbox') sampleVal = true;
-        else if (field.type === 'select' && field.options && field.options.length > 1) {
-          sampleVal = field.options[1].value;
-        } else if (field.type === 'radio' && field.radioOptions && field.radioOptions.length > 1) {
-          sampleVal = field.radioOptions[1].value;
-        }
-
-        this.onFillRequested({
-          field_id: field.id,
-          value: sampleVal
-        });
-      }
-    });
-
-    // Hover to highlight DOM element
     const cards = this.shadow.querySelectorAll<HTMLElement>('.vf-field-card');
     cards.forEach(card => {
       card.addEventListener('mouseenter', () => {
@@ -897,17 +1015,11 @@ export class VoiceFormDebugDrawer {
         if (selector) {
           try {
             const target = document.querySelector<HTMLElement>(selector);
-            if (target) {
-              this.highlightElement(target);
-            }
-          } catch {
-            // ignore invalid selector
-          }
+            if (target) this.highlightElement(target);
+          } catch {}
         }
       });
-      card.addEventListener('mouseleave', () => {
-        this.clearHighlight();
-      });
+      card.addEventListener('mouseleave', () => this.clearHighlight());
     });
   }
 
@@ -929,6 +1041,94 @@ export class VoiceFormDebugDrawer {
       this.highlightedElement.removeAttribute('data-vf-highlight');
       this.highlightedElement = null;
     }
+  }
+
+  public updateWsStatus(status: string, sessionId?: string): void {
+    this.wsStatus = status;
+    if (sessionId) this.wsSessionId = sessionId;
+    this.syncWsStatusUI();
+  }
+
+  public setVoiceState(status: 'idle' | 'listening' | 'processing' | 'filling' | 'speaking' | 'interrupted' | 'error'): void {
+    this.voiceStatus = status;
+    this.syncVoiceStateUI();
+  }
+
+  public getVoiceState(): string {
+    return this.voiceStatus;
+  }
+
+  public getCurrentResult(): PageScanResult | null {
+    return this.currentResult;
+  }
+
+  public getInterruptionCount(): number {
+    return this.interruptionCount;
+  }
+
+  public setGenerationId(genId: number): void {
+    this.currentGenerationId = genId;
+    if (this.metaGenEl) {
+      this.metaGenEl.textContent = `Gen #${genId}`;
+    }
+  }
+
+  public recordInterruption(latencyMs: number): void {
+    this.lastInterruptionLatencyMs = latencyMs;
+    this.interruptionCount++;
+    this.voiceStatus = 'interrupted';
+    this.syncVoiceStateUI();
+  }
+
+  public setAssistantResponse(text: string): void {
+    this.assistantResponseText = text;
+    this.syncAiPanelUI();
+  }
+
+  public setTranscript(text: string): void {
+    this.latestTranscript = text;
+    if (this.bottomLiveChipEl && this.bottomLiveTextEl) {
+      if (text.trim() && this.voiceStatus === 'listening') {
+        this.bottomLiveChipEl.style.display = 'inline-flex';
+        this.bottomLiveTextEl.textContent = text;
+      } else {
+        this.bottomLiveChipEl.style.display = 'none';
+      }
+    }
+    this.syncAiPanelUI();
+  }
+
+  public setLiveTranscript(text: string): void {
+    this.setTranscript(text);
+  }
+
+  public clearLiveTranscript(): void {
+    if (this.bottomLiveChipEl) {
+      this.bottomLiveChipEl.style.display = 'none';
+    }
+    if (this.bottomLiveTextEl) {
+      this.bottomLiveTextEl.textContent = '';
+    }
+  }
+
+  public setExtractedActions(actions: FormAction[]): void {
+    this.extractedActions = actions;
+    this.syncAiPanelUI();
+  }
+
+  public setFillResults(results: FillResult[]): void {
+    this.fillResults = results;
+    this.syncAiPanelUI();
+  }
+
+  public setAskUser(question: string): void {
+    this.askUserQuestion = question;
+    this.syncAiPanelUI();
+  }
+
+  public setAiError(error: string): void {
+    this.aiErrorMessage = error;
+    this.syncAiPanelUI();
   }
 }
 

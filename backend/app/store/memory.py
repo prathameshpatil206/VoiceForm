@@ -54,6 +54,18 @@ class InMemorySessionStore(SessionStore):
             if session_id not in self._sessions:
                 self._sessions[session_id] = SessionState(session_id=session_id)
             session = self._sessions[session_id]
+
+            # If navigating to a different page/URL, clear past conversation history & previous field values
+            if session.schema_data and session.schema_data.url != schema.url:
+                session.conversation_history.clear()
+                session.actions_history.clear()
+                session.results_history.clear()
+                session.current_field_values.clear()
+            elif session.schema_data:
+                # Prune field values for fields that no longer exist in the new schema
+                valid_ids = {f.id for form in schema.forms for f in form.fields} | {f.id for f in schema.orphanFields}
+                session.current_field_values = {k: v for k, v in session.current_field_values.items() if k in valid_ids}
+
             session.schema_data = schema
             session.last_active_at = int(time.time() * 1000)
             return session

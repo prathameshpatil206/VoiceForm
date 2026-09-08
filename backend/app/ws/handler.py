@@ -10,7 +10,7 @@ from fastapi import WebSocket
 from app.ai.asr.base import ASRProvider, TranscriptResult
 from app.ai.asr.qwen_asr import Qwen3ASRProvider
 from app.ai.llm.base import LLMActionResult, LLMProvider
-from app.ai.llm.prompts import build_conversational_response
+from app.ai.llm.prompts import build_conversational_response, heuristic_extract_actions
 from app.ai.llm.qwen import Qwen3LLMProvider
 from app.ai.tts.base import (
     TTSCancelledError,
@@ -225,8 +225,10 @@ class WebSocketHandler:
             try:
                 schema = PageScanResult.model_validate(payload)
                 await self.store.update_schema(incoming_sid, schema)
-                # Milestone 7: Query profile candidate matches for this form
-                candidates = await self.profile_service.get_candidate_values_for_schema(schema)
+                # Milestone 7: Query profile candidate matches for this form (only if persistence enabled)
+                candidates = []
+                if config.ENABLE_PROFILE_PERSISTENCE:
+                    candidates = await self.profile_service.get_candidate_values_for_schema(schema)
                 session = await self.store.get_session(incoming_sid)
                 ack = WebSocketMessage(
                     type=MessageType.ACK,
@@ -290,6 +292,24 @@ class WebSocketHandler:
                     payload=AiErrorPayload(
                         stage="AUDIO",
                         error_code="AUDIO_PAYLOAD_ERROR",
+                        message=str(e)
+                    )
+                )
+                await websocket.send_text(err_frame.model_dump_json())
+
+        elif msg_type == MessageType.TRANSCRIPT:
+            try:
+                transcript_text = payload.get("text", "").strip()
+                if transcript_text:
+                    await self._start_text_utterance_generation(websocket, incoming_sid, transcript_text)
+            except Exception as e:
+                logger.error(f"Error in TRANSCRIPT handling: {e}")
+                err_frame = WebSocketMessage[AiErrorPayload](
+                    type=MessageType.AI_ERROR,
+                    session_id=incoming_sid,
+                    payload=AiErrorPayload(
+                        stage="TRANSCRIPT",
+                        error_code="TRANSCRIPT_PAYLOAD_ERROR",
                         message=str(e)
                     )
                 )
@@ -423,7 +443,7 @@ class WebSocketHandler:
         self, websocket: WebSocket, session_id: str, audio_bytes: bytes
     ) -> None:
         """
-        Coordinates the start of a new conversational generation turn:
+        Coordinates the start of a new conversational generation turn from audio:
         1. Cancels any currently active generation / playback.
         2. Monotonically allocates new generation_id.
         3. Creates a new ConversationTurn in the SessionStore.
@@ -450,6 +470,81 @@ class WebSocketHandler:
                 self._process_utterance(websocket, session_id, audio_bytes, gen_id)
             )
             self._active_pipeline_tasks[session_id] = (gen_id, task)
+
+    async def _start_text_utterance_generation(
+        self, websocket: WebSocket, session_id: str, text: str
+    ) -> None:
+        """
+        Coordinates the start of a conversational turn from a direct text transcript:
+        1. Cancels any currently active generation / playback.
+        2. Monotonically allocates new generation_id.
+        3. Creates a new ConversationTurn in the SessionStore.
+        4. Broadcasts GENERATION_START frame.
+        5. Launches async pipeline task bound to generation_id.
+        """
+        # Step 1: Invalidate and cancel previous generation if active
+        session = await self.store.get_session(session_id)
+        if session and session.conversation_state in ("SPEAKING", "PROCESSING"):
+            await self.cancel_generation(session_id, target_generation_id=session.current_generation_id, reason="interrupted_by_new_utterance")
+
+        # Step 2: Increment monotonic generation ID and create turn
+        gen_id = await self.store.next_generation(session_id)
+        await self.store.create_turn(session_id, generation_id=gen_id)
+        await self.store.set_conversation_state(session_id, "PROCESSING")
+
+        # Step 3: Launch pipeline task tracked by generation_id
+        async with self._task_lock:
+            existing = self._active_pipeline_tasks.pop(session_id, None)
+            if existing and not existing[1].done():
+                existing[1].cancel()
+
+            task = asyncio.create_task(
+                self._process_text_pipeline(websocket, session_id, text, gen_id)
+            )
+            self._active_pipeline_tasks[session_id] = (gen_id, task)
+
+    async def _process_text_pipeline(
+        self, websocket: WebSocket, session_id: str, text: str, generation_id: int
+    ) -> None:
+        try:
+            if not await self._is_active_generation(session_id, generation_id):
+                return
+            await self.store.set_conversation_state(session_id, "PROCESSING")
+            await self.store.update_turn(session_id, generation_id, status="PROCESSING")
+
+            # Echo transcript frame so UI shows the processed text
+            transcript_frame = WebSocketMessage[TranscriptPayload](
+                type=MessageType.TRANSCRIPT,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload=TranscriptPayload(
+                    text=text,
+                    language="en",
+                    confidence=1.0,
+                    is_final=True,
+                    generation_id=generation_id
+                )
+            )
+            await websocket.send_text(transcript_frame.model_dump_json())
+            await self.store.record_transcript(session_id, text)
+            await self.store.append_conversation(session_id, "user", text)
+            await self.store.update_turn(session_id, generation_id, transcript=text, user_utterance=text)
+
+            await self._execute_reasoning_and_actions(websocket, session_id, text, generation_id)
+        except asyncio.CancelledError:
+            logger.info(f"Text pipeline task cancelled for session={session_id} gen={generation_id}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in text pipeline for session={session_id} gen={generation_id}: {e}")
+            if await self._is_active_generation(session_id, generation_id):
+                await self.store.set_conversation_state(session_id, "ERROR")
+                await self.store.update_turn(session_id, generation_id, status="ERROR")
+        finally:
+            async with self._task_lock:
+                if session_id in self._active_pipeline_tasks:
+                    curr_g, curr_t = self._active_pipeline_tasks[session_id]
+                    if curr_g == generation_id and curr_t == asyncio.current_task():
+                        self._active_pipeline_tasks.pop(session_id, None)
 
     async def _process_utterance(
         self, websocket: WebSocket, session_id: str, audio_bytes: bytes, generation_id: int
@@ -523,224 +618,7 @@ class WebSocketHandler:
             await self.store.append_conversation(session_id, "user", text)
             await self.store.update_turn(session_id, generation_id, transcript=text, user_utterance=text)
 
-            # Step 2: Retrieve current form schema & context
-            session = await self.store.get_session(session_id)
-            if not session or not session.schema_data or session.schema_data.totalFieldCount == 0:
-                logger.warning(f"No form schema present for session={session_id} gen={generation_id}")
-                await self.store.set_conversation_state(session_id, "IDLE")
-                await self.store.update_turn(session_id, generation_id, status="ERROR")
-                err_frame = WebSocketMessage[AiErrorPayload](
-                    type=MessageType.AI_ERROR,
-                    session_id=session_id,
-                    generation_id=generation_id,
-                    payload=AiErrorPayload(
-                        stage="LLM",
-                        error_code="NO_FORM_SCHEMA",
-                        message="No active form inputs detected on the current page.",
-                        generation_id=generation_id
-                    )
-                )
-                await websocket.send_text(err_frame.model_dump_json())
-                return
-
-            # Step 3: LLM Reasoning & Extraction (Qwen3) with Profile Context
-            try:
-                # Milestone 7: Retrieve matching profile candidate values
-                profile_candidates = await self.profile_service.get_candidate_values_for_schema(session.schema_data)
-                profile_context = {
-                    c.canonical_key: c.value for c in profile_candidates if c.canonical_key and c.value
-                } if profile_candidates else None
-
-                try:
-                    llm_result = await self.llm.extract_actions(
-                        transcript=text,
-                        schema=session.schema_data,
-                        current_values=session.current_field_values,
-                        conversation_history=session.conversation_history,
-                        profile_context=profile_context
-                    )
-                except TypeError:
-                    llm_result = await self.llm.extract_actions(
-                        transcript=text,
-                        schema=session.schema_data,
-                        current_values=session.current_field_values,
-                        conversation_history=session.conversation_history
-                    )
-            except Exception as e:
-                if not await self._is_active_generation(session_id, generation_id):
-                    return
-                logger.error(f"LLM extraction failed for session={session_id} gen={generation_id}: {e}")
-                await self.store.set_conversation_state(session_id, "ERROR")
-                await self.store.update_turn(session_id, generation_id, status="ERROR")
-                err_frame = WebSocketMessage[AiErrorPayload](
-                    type=MessageType.AI_ERROR,
-                    session_id=session_id,
-                    generation_id=generation_id,
-                    payload=AiErrorPayload(
-                        stage="LLM",
-                        error_code="LLM_EXTRACTION_FAILED",
-                        message=str(e),
-                        generation_id=generation_id
-                    )
-                )
-                await websocket.send_text(err_frame.model_dump_json())
-                return
-
-            # Stale guard after LLM
-            if not await self._is_active_generation(session_id, generation_id):
-                logger.info(f"Discarding stale LLM result for session={session_id} gen={generation_id}")
-                return
-
-            # If LLM generated a clarification or question for missing information
-            if llm_result.ask_user:
-                logger.info(f"❓ LLM asked user [gen={generation_id}]: '{llm_result.ask_user}'")
-                await self.store.append_conversation(session_id, "assistant", llm_result.ask_user)
-                ask_frame = WebSocketMessage[AskUserPayload](
-                    type=MessageType.ASK_USER,
-                    session_id=session_id,
-                    generation_id=generation_id,
-                    payload=AskUserPayload(question=llm_result.ask_user, generation_id=generation_id)
-                )
-                await websocket.send_text(ask_frame.model_dump_json())
-
-            # Step 4: Action Validation Layer (Safety & Schema Guard)
-            raw_actions = llm_result.actions
-            valid_actions: list[FillAction] = []
-            if raw_actions:
-                v_acts, rejected = self.validator.validate_actions(raw_actions, session.schema_data)
-                valid_actions = v_acts
-                if rejected:
-                    for r in rejected:
-                        logger.warning(
-                            f"Action rejected for session={session_id} gen={generation_id}: {r['error']} ({r['error_code']})"
-                        )
-
-            # Stale guard before dispatching actions
-            if not await self._is_active_generation(session_id, generation_id):
-                logger.info(f"Discarding stale actions dispatch for session={session_id} gen={generation_id}")
-                return
-
-            # Step 5: Dispatch Validated Actions to Extension (M2 DOM Filler)
-            if valid_actions:
-                await self.store.update_turn(
-                    session_id,
-                    generation_id,
-                    actions=[a.model_dump() for a in valid_actions]
-                )
-
-                # Emit AI_ACTIONS telemetry frame to UI
-                ai_actions_frame = WebSocketMessage[AiActionsPayload](
-                    type=MessageType.AI_ACTIONS,
-                    session_id=session_id,
-                    generation_id=generation_id,
-                    payload=AiActionsPayload(
-                        actions=[a.model_dump() for a in valid_actions],
-                        reasoning=llm_result.reasoning,
-                        generation_id=generation_id
-                    )
-                )
-                await websocket.send_text(ai_actions_frame.model_dump_json())
-
-                # Record actions in store
-                for act in valid_actions:
-                    await self.store.record_action(session_id, act)
-
-                # Dispatch FILL_ACTIONS batch to M2 DOM filler
-                fill_frame = WebSocketMessage[Dict[str, Any]](
-                    type=MessageType.FILL_ACTIONS,
-                    session_id=session_id,
-                    generation_id=generation_id,
-                    payload={"actions": [a.model_dump() for a in valid_actions], "generation_id": generation_id}
-                )
-                await websocket.send_text(fill_frame.model_dump_json())
-                logger.info(f"⚡ Dispatched {len(valid_actions)} validated actions for session={session_id} gen={generation_id}")
-
-                # Milestone 7: Extract and persist eligible profile candidates
-                try:
-                    profile_cands = self.profile_service.extract_profile_candidates_from_actions(
-                        [a.model_dump() for a in valid_actions],
-                        session.schema_data,
-                        source=ProfileSource.USER_SPOKEN
-                    )
-                    if profile_cands:
-                        await self.profile_service.save_eligible_candidates(profile_cands)
-                except Exception as p_err:
-                    logger.warning(f"Error persisting profile candidates: {p_err}")
-
-            # Step 6: Determine Spoken Assistant Response (Milestone 5)
-            spoken_response = llm_result.response
-
-            # Fallback response generation grounded in current form state
-            if not spoken_response:
-                field_map = {}
-                for form in session.schema_data.forms:
-                    for f in form.fields:
-                        field_map[f.id] = f.label
-                for f in session.schema_data.orphanFields:
-                    field_map[f.id] = f.label
-
-                filled_labels: list[str] = []
-                for act in valid_actions:
-                    if act.field_id and act.field_id in field_map:
-                        lbl = field_map[act.field_id]
-                        if lbl and lbl not in filled_labels:
-                            filled_labels.append(lbl)
-
-                # Check remaining unfilled required fields
-                remaining_required: list[str] = []
-                all_fields = [f for form in session.schema_data.forms for f in form.fields] + list(session.schema_data.orphanFields)
-                curr_vals = dict(session.current_field_values)
-                for a in valid_actions:
-                    if a.field_id:
-                        curr_vals[a.field_id] = a.value
-
-                for f in all_fields:
-                    if f.validation.required and not f.disabled and not f.readOnly:
-                        val = curr_vals.get(f.id)
-                        if val is None or str(val).strip() == "":
-                            if f.label and f.label not in remaining_required:
-                                remaining_required.append(f.label)
-
-                spoken_response = build_conversational_response(
-                    filled_labels=filled_labels,
-                    ask_user=llm_result.ask_user,
-                    remaining_required_labels=remaining_required
-                )
-
-            # Apply TTS Safety Guard
-            safe_response = sanitize_tts_text(spoken_response)
-
-            # Stale guard before starting TTS
-            if not await self._is_active_generation(session_id, generation_id):
-                logger.info(f"Discarding stale response/TTS for session={session_id} gen={generation_id}")
-                return
-
-            if safe_response:
-                logger.info(f"🗣️ Assistant response [session={session_id} gen={generation_id}]: '{safe_response}'")
-                await self.store.record_assistant_response(session_id, safe_response)
-                await self.store.update_turn(session_id, generation_id, assistant_response=safe_response)
-
-                # Emit conversational response text to extension for UI display
-                resp_frame = WebSocketMessage[Dict[str, Any]](
-                    type=MessageType.AI_RESPONSE,
-                    session_id=session_id,
-                    generation_id=generation_id,
-                    payload={"response": safe_response, "generation_id": generation_id}
-                )
-                await websocket.send_text(resp_frame.model_dump_json())
-
-                # Synthesize and stream speech via Rime TTS
-                await self._start_tts_task(websocket, session_id, safe_response, generation_id=generation_id)
-            else:
-                await self.store.set_conversation_state(session_id, "IDLE")
-                await self.store.update_turn(session_id, generation_id, status="COMPLETED")
-                complete_frame = WebSocketMessage[GenerationCompletePayload](
-                    type=MessageType.GENERATION_COMPLETE,
-                    session_id=session_id,
-                    generation_id=generation_id,
-                    payload=GenerationCompletePayload(generation_id=generation_id, status="completed")
-                )
-                await websocket.send_text(complete_frame.model_dump_json())
+            await self._execute_reasoning_and_actions(websocket, session_id, text, generation_id)
 
         except asyncio.CancelledError:
             logger.info(f"Pipeline task cancelled for session={session_id} gen={generation_id}")
@@ -756,6 +634,243 @@ class WebSocketHandler:
                     curr_g, curr_t = self._active_pipeline_tasks[session_id]
                     if curr_g == generation_id and curr_t == asyncio.current_task():
                         self._active_pipeline_tasks.pop(session_id, None)
+
+    async def _execute_reasoning_and_actions(
+        self, websocket: WebSocket, session_id: str, text: str, generation_id: int
+    ) -> None:
+        """
+        Shared reasoning, form extraction, validation, and TTS pipeline.
+        Executed for both audio utterances and direct transcripts.
+        """
+        # Step 2: Retrieve current form schema & context
+        session = await self.store.get_session(session_id)
+        if not session or not session.schema_data or session.schema_data.totalFieldCount == 0:
+            logger.warning(f"No form schema present for session={session_id} gen={generation_id}")
+            await self.store.set_conversation_state(session_id, "IDLE")
+            await self.store.update_turn(session_id, generation_id, status="ERROR")
+            err_frame = WebSocketMessage[AiErrorPayload](
+                type=MessageType.AI_ERROR,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload=AiErrorPayload(
+                    stage="LLM",
+                    error_code="NO_FORM_SCHEMA",
+                    message="No active form inputs detected on the current page.",
+                    generation_id=generation_id
+                )
+            )
+            await websocket.send_text(err_frame.model_dump_json())
+            return
+
+        # Step 3: LLM Reasoning & Extraction with Profile Context (only if enabled)
+        try:
+            profile_context = None
+            if config.ENABLE_PROFILE_PERSISTENCE:
+                profile_candidates = await self.profile_service.get_candidate_values_for_schema(session.schema_data)
+                profile_context = {
+                    c.canonical_key: c.value for c in profile_candidates if c.canonical_key and c.value
+                } if profile_candidates else None
+
+            try:
+                llm_result = await self.llm.extract_actions(
+                    transcript=text,
+                    schema=session.schema_data,
+                    current_values=session.current_field_values,
+                    conversation_history=session.conversation_history,
+                    profile_context=profile_context
+                )
+            except TypeError:
+                llm_result = await self.llm.extract_actions(
+                    transcript=text,
+                    schema=session.schema_data,
+                    current_values=session.current_field_values,
+                    conversation_history=session.conversation_history
+                )
+        except Exception as e:
+            if not await self._is_active_generation(session_id, generation_id):
+                return
+            logger.error(f"LLM extraction failed for session={session_id} gen={generation_id}: {e}")
+            await self.store.set_conversation_state(session_id, "ERROR")
+            await self.store.update_turn(session_id, generation_id, status="ERROR")
+            err_frame = WebSocketMessage[AiErrorPayload](
+                type=MessageType.AI_ERROR,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload=AiErrorPayload(
+                    stage="LLM",
+                    error_code="LLM_EXTRACTION_FAILED",
+                    message=str(e),
+                    generation_id=generation_id
+                )
+            )
+            await websocket.send_text(err_frame.model_dump_json())
+            return
+
+        # Stale guard after LLM
+        if not await self._is_active_generation(session_id, generation_id):
+            logger.info(f"Discarding stale LLM result for session={session_id} gen={generation_id}")
+            return
+
+        # If LLM generated a clarification or question for missing information
+        if llm_result.ask_user:
+            logger.info(f"❓ LLM asked user [gen={generation_id}]: '{llm_result.ask_user}'")
+            await self.store.append_conversation(session_id, "assistant", llm_result.ask_user)
+            ask_frame = WebSocketMessage[AskUserPayload](
+                type=MessageType.ASK_USER,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload=AskUserPayload(question=llm_result.ask_user, generation_id=generation_id)
+            )
+            await websocket.send_text(ask_frame.model_dump_json())
+
+        # Step 4: Action Validation Layer (Safety & Schema Guard)
+        raw_actions = llm_result.actions
+        valid_actions: list[FillAction] = []
+        if raw_actions:
+            v_acts, rejected = self.validator.validate_actions(raw_actions, session.schema_data)
+            valid_actions = v_acts
+            if rejected:
+                for r in rejected:
+                    logger.warning(
+                        f"Action rejected for session={session_id} gen={generation_id}: {r['error']} ({r['error_code']})"
+                    )
+
+        # Safety Net: If LLM produced zero valid actions, execute instant heuristic extraction
+        if not valid_actions and text:
+            heuristic_acts = heuristic_extract_actions(text, session.schema_data)
+            if heuristic_acts:
+                logger.info(f"⚡ Heuristic safety net extracted {len(heuristic_acts)} actions for session={session_id} gen={generation_id}")
+                h_valid, _ = self.validator.validate_actions(heuristic_acts, session.schema_data)
+                if h_valid:
+                    valid_actions = h_valid
+
+        # Stale guard before dispatching actions
+        if not await self._is_active_generation(session_id, generation_id):
+            logger.info(f"Discarding stale actions dispatch for session={session_id} gen={generation_id}")
+            return
+
+        # Step 5: Dispatch Validated Actions to Extension (M2 DOM Filler)
+        if valid_actions:
+            await self.store.update_turn(
+                session_id,
+                generation_id,
+                actions=[a.model_dump() for a in valid_actions]
+            )
+
+            # Emit AI_ACTIONS telemetry frame to UI
+            ai_actions_frame = WebSocketMessage[AiActionsPayload](
+                type=MessageType.AI_ACTIONS,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload=AiActionsPayload(
+                    actions=[a.model_dump() for a in valid_actions],
+                    reasoning=llm_result.reasoning,
+                    generation_id=generation_id
+                )
+            )
+            await websocket.send_text(ai_actions_frame.model_dump_json())
+
+            # Record actions in store
+            for act in valid_actions:
+                await self.store.record_action(session_id, act)
+
+            # Dispatch FILL_ACTIONS batch to M2 DOM filler
+            fill_frame = WebSocketMessage[Dict[str, Any]](
+                type=MessageType.FILL_ACTIONS,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload={"actions": [a.model_dump() for a in valid_actions], "generation_id": generation_id}
+            )
+            await websocket.send_text(fill_frame.model_dump_json())
+            logger.info(f"⚡ Dispatched {len(valid_actions)} validated actions for session={session_id} gen={generation_id}")
+
+            # Milestone 7: Extract and persist eligible profile candidates (only if enabled)
+            if config.ENABLE_PROFILE_PERSISTENCE:
+                try:
+                    profile_cands = self.profile_service.extract_profile_candidates_from_actions(
+                        [a.model_dump() for a in valid_actions],
+                        session.schema_data,
+                        source=ProfileSource.USER_SPOKEN
+                    )
+                    if profile_cands:
+                        await self.profile_service.save_eligible_candidates(profile_cands)
+                except Exception as p_err:
+                    logger.warning(f"Error persisting profile candidates: {p_err}")
+
+        # Step 6: Determine Spoken Assistant Response (Milestone 5)
+        spoken_response = llm_result.response
+
+        # Fallback response generation grounded in current form state
+        if not spoken_response:
+            field_map = {}
+            for form in session.schema_data.forms:
+                for f in form.fields:
+                    field_map[f.id] = f.label
+            for f in session.schema_data.orphanFields:
+                field_map[f.id] = f.label
+
+            filled_labels: list[str] = []
+            for act in valid_actions:
+                if act.field_id and act.field_id in field_map:
+                    lbl = field_map[act.field_id]
+                    if lbl and lbl not in filled_labels:
+                        filled_labels.append(lbl)
+
+            # Check remaining unfilled required fields
+            remaining_required: list[str] = []
+            all_fields = [f for form in session.schema_data.forms for f in form.fields] + list(session.schema_data.orphanFields)
+            curr_vals = dict(session.current_field_values)
+            for a in valid_actions:
+                if a.field_id:
+                    curr_vals[a.field_id] = a.value
+
+            for f in all_fields:
+                if f.validation.required and not f.disabled and not f.readOnly:
+                    val = curr_vals.get(f.id)
+                    if val is None or str(val).strip() == "":
+                        if f.label and f.label not in remaining_required:
+                            remaining_required.append(f.label)
+
+            spoken_response = build_conversational_response(
+                filled_labels=filled_labels,
+                ask_user=llm_result.ask_user,
+                remaining_required_labels=remaining_required
+            )
+
+        # Apply TTS Safety Guard
+        safe_response = sanitize_tts_text(spoken_response)
+
+        # Stale guard before starting TTS
+        if not await self._is_active_generation(session_id, generation_id):
+            logger.info(f"Discarding stale response/TTS for session={session_id} gen={generation_id}")
+            return
+
+        if safe_response:
+            logger.info(f"🗣️ Assistant response [session={session_id} gen={generation_id}]: '{safe_response}'")
+            await self.store.record_assistant_response(session_id, safe_response)
+            await self.store.update_turn(session_id, generation_id, assistant_response=safe_response)
+
+            # Emit conversational response text to extension for UI display
+            resp_frame = WebSocketMessage[Dict[str, Any]](
+                type=MessageType.AI_RESPONSE,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload={"response": safe_response, "generation_id": generation_id}
+            )
+            await websocket.send_text(resp_frame.model_dump_json())
+
+            # Synthesize and stream speech via Rime TTS
+            await self._start_tts_task(websocket, session_id, safe_response, generation_id=generation_id)
+        else:
+            await self.store.set_conversation_state(session_id, "IDLE")
+            await self.store.update_turn(session_id, generation_id, status="COMPLETED")
+            complete_frame = WebSocketMessage[GenerationCompletePayload](
+                type=MessageType.GENERATION_COMPLETE,
+                session_id=session_id,
+                generation_id=generation_id,
+                payload=GenerationCompletePayload(generation_id=generation_id, status="completed")
+            )
+            await websocket.send_text(complete_frame.model_dump_json())
 
     async def _start_tts_task(
         self,

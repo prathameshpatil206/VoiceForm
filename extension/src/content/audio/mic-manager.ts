@@ -17,6 +17,7 @@ export interface MicManagerOptions {
 
 export class MicrophoneManager {
   private sampleRate: number;
+  private actualSampleRate = 16000;
   private bufferSize: number;
   private speechThreshold: number;
   private audioContext: AudioContext | null = null;
@@ -53,26 +54,32 @@ export class MicrophoneManager {
     if (this.isRecording) return true;
 
     try {
-      // 1. Request microphone permission with constraint preferences
+      // 1. Request microphone permission with noise suppression and echo cancellation
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: this.sampleRate,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
         }
       });
 
-      // 2. Initialize AudioContext at target sample rate (16kHz)
+      // 2. Initialize AudioContext at target sample rate if possible
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioContext = new AudioContextClass({
-        sampleRate: this.sampleRate
-      });
+      try {
+        this.audioContext = new AudioContextClass({
+          sampleRate: this.sampleRate
+        });
+      } catch {
+        // Fallback for browsers rejecting explicit sampleRate
+        this.audioContext = new AudioContextClass();
+      }
 
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
       }
+
+      this.actualSampleRate = this.audioContext.sampleRate || this.sampleRate;
 
       this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
       this.processorNode = this.audioContext.createScriptProcessor(this.bufferSize, 1, 1);
@@ -86,23 +93,24 @@ export class MicrophoneManager {
         if (!this.isRecording) return;
         const now = performance.now();
         const inputData = e.inputBuffer.getChannelData(0);
-        // Clone samples
-        const chunk = new Float32Array(inputData);
-        this.recordedChunks.push(chunk);
-        this.totalSamples += chunk.length;
 
-        // Calculate RMS for speech activity detection
+        // Calculate RMS for speech activity detection on the raw input
         let sumSquares = 0;
-        for (let i = 0; i < chunk.length; i++) {
-          sumSquares += chunk[i] * chunk[i];
+        for (let i = 0; i < inputData.length; i++) {
+          sumSquares += inputData[i] * inputData[i];
         }
-        const rms = Math.sqrt(sumSquares / chunk.length);
+        const rms = Math.sqrt(sumSquares / inputData.length);
         if (rms >= this.speechThreshold && this.onSpeechActivity) {
           this.onSpeechActivity(now, rms);
         }
 
-        // Convert chunk to 16-bit PCM base64
-        const pcm16 = this.floatTo16BitPCM(chunk);
+        // Resample chunk to guaranteed 16,000Hz so backend VAD & Whisper never slow down or distort
+        const resampledChunk = this.downsampleBuffer(inputData, this.actualSampleRate, this.sampleRate);
+        this.recordedChunks.push(resampledChunk);
+        this.totalSamples += resampledChunk.length;
+
+        // Convert 16kHz chunk to 16-bit PCM base64
+        const pcm16 = this.floatTo16BitPCM(resampledChunk);
         const base64Chunk = this.arrayBufferToBase64(pcm16.buffer as ArrayBuffer);
         if (this.onAudioChunk) {
           this.onAudioChunk(base64Chunk, now);
@@ -110,8 +118,11 @@ export class MicrophoneManager {
       };
 
       this.sourceNode.connect(this.processorNode);
-      // Connect to destination to keep audio process active
-      this.processorNode.connect(this.audioContext.destination);
+      // Silent GainNode before destination to keep ScriptProcessor active without feedback
+      const muteNode = this.audioContext.createGain();
+      muteNode.gain.value = 0.0;
+      this.processorNode.connect(muteNode);
+      muteNode.connect(this.audioContext.destination);
 
       if (this.onStateChange) {
         this.onStateChange('listening');
@@ -120,7 +131,7 @@ export class MicrophoneManager {
       return true;
     } catch (err: any) {
       console.error('[VoiceForm Mic] Failed to start audio recording:', err);
-      this.stopListening();
+      this.stopListening(true);
       if (this.onError) {
         this.onError(err instanceof Error ? err : new Error(String(err)));
       }
@@ -128,7 +139,7 @@ export class MicrophoneManager {
     }
   }
 
-  public stopListening(): void {
+  public stopListening(discard = false): void {
     if (!this.isRecording && !this.mediaStream) return;
 
     this.isRecording = false;
@@ -145,7 +156,7 @@ export class MicrophoneManager {
         this.sourceNode = null;
       }
       if (this.audioContext && this.audioContext.state !== 'closed') {
-        this.audioContext.close();
+        this.audioContext.close().catch(() => {});
         this.audioContext = null;
       }
     } catch (e) {
@@ -160,8 +171,8 @@ export class MicrophoneManager {
 
     const durationMs = Date.now() - this.startTime;
 
-    // Produce complete WAV audio if samples were collected
-    if (this.totalSamples > 0 && this.onAudioComplete) {
+    // Produce complete WAV audio ONLY if not discarded
+    if (!discard && this.totalSamples > 0 && this.onAudioComplete) {
       const merged = this.mergeChunks(this.recordedChunks, this.totalSamples);
       const wavBuffer = this.encodeWAV(merged, this.sampleRate);
       const base64Wav = this.arrayBufferToBase64(wavBuffer);
@@ -174,6 +185,35 @@ export class MicrophoneManager {
     if (this.onStateChange) {
       this.onStateChange('inactive');
     }
+  }
+
+  /**
+   * High-fidelity downsampler / linear accumulator resampler.
+   * Converts any hardware rate (e.g. 48kHz, 44.1kHz, 96kHz) down to target rate (16kHz).
+   */
+  private downsampleBuffer(buffer: Float32Array, inRate: number, outRate: number): Float32Array {
+    if (inRate === outRate || inRate <= 0 || outRate <= 0) {
+      return new Float32Array(buffer);
+    }
+    const ratio = inRate / outRate;
+    const newLength = Math.round(buffer.length / ratio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+        accum += buffer[i];
+        count++;
+      }
+      result[offsetResult] = count > 0 ? accum / count : buffer[offsetBuffer];
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
   }
 
   private mergeChunks(chunks: Float32Array[], totalLength: number): Float32Array {

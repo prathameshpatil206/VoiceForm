@@ -58,7 +58,17 @@ class ActionValidator:
                 error_code="MALFORMED_ACTION"
             )
 
-        act_type = str(raw_action.get("action", "")).strip().lower()
+        raw_act = raw_action.get("action") or raw_action.get("type") or "fill_field"
+        act_type = str(raw_act).strip().lower()
+        if act_type in ("set_field", "fill", "input", "write", "enter"):
+            act_type = "fill_field"
+        elif act_type in ("select", "choose", "check"):
+            act_type = "select_option"
+        elif act_type in ("clear", "reset", "remove"):
+            act_type = "clear_field"
+        elif act_type not in ALLOWED_ACTIONS and ("value" in raw_action or "val" in raw_action):
+            act_type = "fill_field"
+
         if act_type not in ALLOWED_ACTIONS:
             return ValidationResult(
                 is_valid=False,
@@ -66,7 +76,7 @@ class ActionValidator:
                 error_code="DISALLOWED_ACTION_TYPE"
             )
 
-        field_id = str(raw_action.get("field_id", "")).strip()
+        field_id = str(raw_action.get("field_id") or raw_action.get("id") or "").strip()
         if not field_id:
             return ValidationResult(
                 is_valid=False,
@@ -74,14 +84,28 @@ class ActionValidator:
                 error_code="MISSING_FIELD_ID"
             )
 
-        # 2. Schema existence check
+        # 2. Schema existence check with tolerant fallback
         field_map = self._build_field_map(schema)
         if field_id not in field_map:
-            return ValidationResult(
-                is_valid=False,
-                error=f"Field ID '{field_id}' does not exist in current form schema",
-                error_code="FIELD_NOT_FOUND"
-            )
+            # Tolerant match: match by name, label lowercase, or stripped prefix
+            matched_field = None
+            clean_id = re.sub(r"^(?:vf-f-|vf-)", "", field_id).lower()
+            for fid, f in field_map.items():
+                fid_clean = re.sub(r"^(?:vf-f-|vf-)", "", fid).lower()
+                if (
+                    fid_clean == clean_id
+                    or (f.name and f.name.lower() == field_id.lower())
+                    or (f.label and f.label.lower() == field_id.lower())
+                ):
+                    matched_field = f
+                    field_id = f.id
+                    break
+            if not matched_field:
+                return ValidationResult(
+                    is_valid=False,
+                    error=f"Field ID '{field_id}' does not exist in current form schema",
+                    error_code="FIELD_NOT_FOUND"
+                )
 
         field = field_map[field_id]
 

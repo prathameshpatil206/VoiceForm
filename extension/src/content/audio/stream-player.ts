@@ -1,8 +1,9 @@
 /**
  * AudioStreamPlayer
  * Low-latency streaming audio playback engine for VoiceForm TTS with Milestone 6 Generation Synchronization.
- * Plays incoming audio chunks (PCM / MP3 / WAV) immediately via Web Audio API,
- * maintains gapless sequential scheduling, verifies generation IDs, and supports instant cancellation.
+ * Plays incoming audio chunks (PCM / MP3 / WAV) via Web Audio API,
+ * maintains gapless sequential scheduling, verifies generation IDs,
+ * prevents initial audio clipping via pre-warming & jitter lead time, and supports instant cancellation.
  */
 
 export interface AudioPlayerOptions {
@@ -22,6 +23,7 @@ export class AudioStreamPlayer {
   private currentGenerationId: number | null = null;
   private currentFormat = 'pcm';
   private currentSampleRate = 16000;
+  private pcmRemainder: Uint8Array | null = null;
 
   private onPlaybackStartedCallback?: (generationId?: number) => void;
   private onPlaybackCompleteCallback?: (generationId?: number) => void;
@@ -35,15 +37,39 @@ export class AudioStreamPlayer {
     this.onErrorCallback = options.onError;
   }
 
-  private ensureAudioContext(): AudioContext {
+  /**
+   * Pre-warms the AudioContext on user interaction (e.g. click "Start Voice").
+   * Wakes up the OS/browser audio output hardware clock before speech chunks arrive,
+   * completely eliminating muted or clipped initial words.
+   */
+  public async prewarm(): Promise<void> {
+    try {
+      const ctx = await this.ensureAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      // Trigger a silent 1-sample buffer to engage the hardware output DAC
+      const silentBuffer = ctx.createBuffer(1, 1, this.currentSampleRate);
+      const source = ctx.createBufferSource();
+      source.buffer = silentBuffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    } catch (err) {
+      console.debug('[AudioStreamPlayer] Prewarm debug:', err);
+    }
+  }
+
+  private async ensureAudioContext(): Promise<AudioContext> {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       this.audioContext = new AudioContextClass();
     }
     if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume().catch((err) => {
+      try {
+        await this.audioContext.resume();
+      } catch (err) {
         console.warn('[AudioStreamPlayer] Could not resume audioContext:', err);
-      });
+      }
     }
     return this.audioContext;
   }
@@ -81,6 +107,10 @@ export class AudioStreamPlayer {
     this.isStreamEnded = false;
     this.activeSources = [];
     this.nextPlayTime = 0;
+    this.pcmRemainder = null;
+
+    // Immediately trigger prewarm in the background
+    this.prewarm().catch(() => {});
   }
 
   /**
@@ -116,7 +146,7 @@ export class AudioStreamPlayer {
     const rate = sampleRate || this.currentSampleRate;
 
     try {
-      const ctx = this.ensureAudioContext();
+      const ctx = await this.ensureAudioContext();
 
       if (fmt === 'pcm') {
         this.schedulePcmChunk(ctx, base64Audio, rate);
@@ -140,23 +170,40 @@ export class AudioStreamPlayer {
 
   /**
    * Schedules a raw linear PCM chunk (16-bit little-endian) gaplessly on AudioContext.
+   * Uses DataView and remainder buffering to prevent sample misalignment across chunk boundaries.
    */
   private schedulePcmChunk(ctx: AudioContext, base64Audio: string, sampleRate: number): void {
     const binaryStr = atob(base64Audio);
-    const bytes = new Uint8Array(binaryStr.length);
+    let bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
       bytes[i] = binaryStr.charCodeAt(i);
     }
 
-    // 16-bit PCM: 2 bytes per sample
-    const int16Array = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
-    if (int16Array.length === 0) return;
+    // Prepend remainder byte from previous chunk if present
+    if (this.pcmRemainder && this.pcmRemainder.length > 0) {
+      const combined = new Uint8Array(this.pcmRemainder.length + bytes.length);
+      combined.set(this.pcmRemainder, 0);
+      combined.set(bytes, this.pcmRemainder.length);
+      bytes = combined;
+      this.pcmRemainder = null;
+    }
 
-    // Convert to Float32 [-1.0, 1.0]
-    const audioBuffer = ctx.createBuffer(1, int16Array.length, sampleRate);
+    // If odd number of bytes (each 16-bit PCM sample is 2 bytes), save odd byte for next chunk
+    if (bytes.length % 2 !== 0) {
+      this.pcmRemainder = bytes.slice(bytes.length - 1);
+      bytes = bytes.slice(0, bytes.length - 1);
+    }
+
+    if (bytes.length === 0) return;
+
+    const numSamples = bytes.length / 2;
+    const audioBuffer = ctx.createBuffer(1, numSamples, sampleRate);
     const channelData = audioBuffer.getChannelData(0);
-    for (let i = 0; i < int16Array.length; i++) {
-      channelData[i] = int16Array[i] / 32768.0;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+    for (let i = 0; i < numSamples; i++) {
+      const sample = view.getInt16(i * 2, true);
+      channelData[i] = sample / 32768.0;
     }
 
     this.scheduleBuffer(ctx, audioBuffer);
@@ -177,16 +224,17 @@ export class AudioStreamPlayer {
   }
 
   /**
-   * Connects buffer to destination and schedules it at nextPlayTime.
+   * Connects buffer to destination and schedules it at nextPlayTime with smooth lead time.
    */
   private scheduleBuffer(ctx: AudioContext, buffer: AudioBuffer): void {
     const sourceNode = ctx.createBufferSource();
     sourceNode.buffer = buffer;
     sourceNode.connect(ctx.destination);
 
-    // Schedule seamlessly right after previous chunk finishes
     const now = ctx.currentTime;
-    const startTime = Math.max(now, this.nextPlayTime);
+    // For the initial chunk, allocate a small lead time (80ms) to ensure hardware DAC is ready,
+    // avoiding audio clipping or dropped initial phonemes.
+    const startTime = this.nextPlayTime > now ? this.nextPlayTime : now + 0.08;
     sourceNode.start(startTime);
     this.nextPlayTime = startTime + buffer.duration;
 
@@ -230,6 +278,7 @@ export class AudioStreamPlayer {
       return;
     }
     this.isStreamEnded = true;
+    this.pcmRemainder = null;
 
     // If no active sources are playing, complete immediately
     if (this.activeSources.length === 0 && this._isPlaying) {
@@ -262,6 +311,7 @@ export class AudioStreamPlayer {
     this.activeSources = [];
     this.nextPlayTime = 0;
     this.isStreamEnded = true;
+    this.pcmRemainder = null;
     const wasPlaying = this._isPlaying;
     this._isPlaying = false;
 
@@ -280,5 +330,6 @@ export class AudioStreamPlayer {
     this.currentRequestId = null;
     this.currentGenerationId = null;
     this.isStreamEnded = false;
+    this.pcmRemainder = null;
   }
 }
